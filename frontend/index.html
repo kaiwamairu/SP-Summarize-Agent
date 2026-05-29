@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Summarize Agent v2.0</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  body { background-color:#050505; color:#bac3ff; font-family:'JetBrains Mono',monospace; overflow:hidden; }
+  .material-symbols-outlined { font-size:18px; vertical-align:middle; }
+  ::-webkit-scrollbar { width:4px; height:4px; }
+  ::-webkit-scrollbar-track { background:#0d0e13; }
+  ::-webkit-scrollbar-thumb { background:#333333; }
+  ::-webkit-scrollbar-thumb:hover { background:#454651; }
+  .scanline { width:100%; height:2px; background:rgba(186,195,255,0.02); position:fixed; top:0; left:0; pointer-events:none; z-index:200; animation:scanline 8s linear infinite; }
+  @keyframes scanline { 0%{top:0} 100%{top:100%} }
+  .pulse-dot { animation:pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  * { border-radius:0 !important; }
+  /* Modal overlay */
+  #job-modal { display:none; }
+  #job-modal.open { display:flex; }
+</style>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode:"class",
+    theme:{ extend:{
+      colors:{
+        "surface":"#050505","primary":"#bac3ff","surface-container-low":"#0d0e13",
+        "surface-variant":"#1a1a1a","surface-container-highest":"#242424",
+        "surface-container-high":"#161616","surface-container":"#0f0f0f",
+        "surface-bright":"#1a1a1a","on-surface-variant":"#c6c5d3",
+        "on-surface":"#e3e1e9","on-background":"#e3e1e9",
+        "outline-variant":"#333333","outline":"#454651",
+        "primary-container":"#5c6bc0","on-primary-container":"#f8f6ff",
+        "on-primary":"#15267b","tertiary":"#f6bd58",
+        "error":"#ffb4ab","error-container":"#93000a","on-error":"#690005",
+        "background":"#050505","surface-dim":"#050505",
+        "surface-container-lowest":"#020202",
+      },
+      spacing:{ "lg":"16px","gutter":"12px","margin":"16px","base":"4px","xl":"24px","sm":"8px","md":"12px","xs":"4px","drawer_width":"320px" }
+    }}
+  }
+</script>
+</head>
+<body class="dark selection:bg-primary selection:text-on-primary">
+<div class="scanline"></div>
+
+<!-- ── Header ──────────────────────────────────────────────────── -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-lg h-12 bg-surface border-b border-outline-variant">
+  <div class="flex items-center gap-md">
+    <span class="text-sm font-bold text-primary tracking-tighter">SUMMARIZE_AGENT_v2.0</span>
+    <span class="text-[10px] text-outline font-mono ml-sm opacity-50">STABLE_BUILD_X64</span>
+  </div>
+  <div class="flex items-center gap-lg">
+    <div class="flex items-center gap-xs px-sm py-xs border border-outline-variant bg-surface-container-lowest" id="ws-status">
+      <span class="w-2 h-2 bg-outline-variant" id="ws-dot"></span>
+      <span class="text-[10px] text-outline" id="ws-label">WS_OFFLINE</span>
+    </div>
+    <button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors p-1" onclick="openSettings()">settings</button>
+  </div>
+</header>
+
+<!-- ── Left Sidebar ─────────────────────────────────────────────── -->
+<aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-[240px] flex flex-col bg-surface-container-low border-r border-outline-variant z-40">
+  <div class="p-lg border-b border-outline-variant">
+    <div class="flex items-center gap-md">
+      <div class="w-8 h-8 bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm">K</div>
+      <div>
+        <div class="text-xs font-bold text-on-surface leading-none">ROOT_USER</div>
+        <div class="text-[10px] text-tertiary uppercase mt-1">Clinical Mode Active</div>
+      </div>
+    </div>
+  </div>
+  <nav class="flex-1 py-md">
+    <a class="flex items-center gap-md px-lg py-sm text-primary font-bold border-r-2 border-primary bg-surface-container-high" href="#">
+      <span class="material-symbols-outlined">dashboard</span>
+      <span class="text-[11px] uppercase tracking-wider">Dashboard</span>
+    </a>
+    <a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
+      <span class="material-symbols-outlined">account_tree</span>
+      <span class="text-[11px] uppercase tracking-wider">Vault</span>
+    </a>
+    <a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
+      <span class="material-symbols-outlined">archive</span>
+      <span class="text-[11px] uppercase tracking-wider">Archive</span>
+    </a>
+    <a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#" onclick="openSettings()">
+      <span class="material-symbols-outlined">settings</span>
+      <span class="text-[11px] uppercase tracking-wider">Settings</span>
+    </a>
+  </nav>
+  <div class="p-lg border-t border-outline-variant">
+    <div class="text-[10px] text-outline uppercase mb-xs">Storage_Usage</div>
+    <div class="w-full h-1 bg-outline-variant"><div class="bg-primary h-full w-[68%]"></div></div>
+    <div class="flex justify-between mt-xs text-[9px] text-outline"><span>682 GB</span><span>1.0 TB</span></div>
+  </div>
+</aside>
+
+<!-- ── Main Workspace ────────────────────────────────────────────── -->
+<main class="ml-[240px] mr-[320px] mt-12 p-gutter h-[calc(100vh-48px)] overflow-y-auto bg-surface">
+  <!-- Dashboard Header -->
+  <div class="flex justify-between items-end mb-xl border-b border-outline-variant pb-md">
+    <div>
+      <h1 class="text-base font-bold text-on-surface uppercase tracking-tight">System_Control_Panel</h1>
+      <p class="text-[11px] text-outline mt-xs">Active Tasks: <span id="active-count">0</span> | Node Status: <span class="text-primary">[OPERATIONAL]</span></p>
+    </div>
+    <div class="flex gap-sm">
+      <button onclick="openNewJob()" class="px-md py-1 border border-primary text-primary hover:bg-primary hover:text-on-primary transition-colors text-[11px] uppercase font-bold">
+        + New_Job
+      </button>
+      <button class="px-md py-1 border border-outline text-outline hover:border-on-surface hover:text-on-surface transition-colors text-[11px] uppercase">
+        Export_Log
+      </button>
+    </div>
+  </div>
+
+  <!-- Job Grid -->
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter" id="job-grid">
+    <!-- Empty state -->
+    <div class="col-span-3 border border-dashed border-outline-variant p-xl text-center opacity-40" id="empty-state">
+      <div class="text-outline text-[11px] uppercase tracking-widest">NO_ACTIVE_JOBS</div>
+      <div class="text-[10px] text-outline mt-xs">Click + New_Job to submit URLs</div>
+    </div>
+  </div>
+
+  <!-- Syslog Monitor -->
+  <section class="mt-xl border border-outline-variant bg-surface-container-lowest overflow-hidden">
+    <div class="flex items-center justify-between bg-surface-container-highest px-md py-1 border-b border-outline-variant">
+      <span class="text-[10px] font-bold text-on-surface tracking-widest uppercase">SYSLOG_MONITOR :: node-01</span>
+      <div class="flex gap-2">
+        <div class="w-2 h-2 bg-error"></div>
+        <div class="w-2 h-2 bg-tertiary"></div>
+        <div class="w-2 h-2 bg-primary"></div>
+      </div>
+    </div>
+    <div class="p-md text-[11px] leading-relaxed text-outline space-y-1 h-[180px] overflow-y-auto" id="log-output">
+      <div class="text-outline opacity-50">[SYSTEM] Connecting to backend...</div>
+    </div>
+  </section>
+</main>
+
+<!-- ── Right Settings Drawer ─────────────────────────────────────── -->
+<aside class="fixed right-0 top-12 h-[calc(100vh-48px)] w-[320px] bg-surface-container-high border-l border-outline-variant z-40 overflow-y-auto">
+  <div class="p-lg border-b border-outline-variant bg-surface-container-highest">
+    <h2 class="text-[11px] font-bold text-on-surface uppercase tracking-widest">Global_Parameters</h2>
+  </div>
+  <div class="p-lg space-y-xl">
+    <!-- Platform -->
+    <div>
+      <label class="block text-[10px] text-outline uppercase mb-sm tracking-wider">AI_Platform</label>
+      <div class="space-y-sm" id="platform-list">
+        <button onclick="selectPlatform('openrouter')" data-platform="openrouter" class="platform-btn w-full text-left px-md py-sm border border-primary bg-primary/10 text-primary text-[12px] flex justify-between items-center">
+          OPENROUTER (Multi-model)
+          <span class="material-symbols-outlined text-sm">check_circle</span>
+        </button>
+        <button onclick="selectPlatform('claude')" data-platform="claude" class="platform-btn w-full text-left px-md py-sm border border-outline-variant text-on-surface-variant text-[12px] hover:border-outline hover:text-on-surface transition-colors">
+          CLAUDE (Anthropic)
+        </button>
+        <button onclick="selectPlatform('openai')" data-platform="openai" class="platform-btn w-full text-left px-md py-sm border border-outline-variant text-on-surface-variant text-[12px] hover:border-outline hover:text-on-surface transition-colors">
+          OPENAI / GPT
+        </button>
+        <button onclick="selectPlatform('gemini')" data-platform="gemini" class="platform-btn w-full text-left px-md py-sm border border-outline-variant text-on-surface-variant text-[12px] hover:border-outline hover:text-on-surface transition-colors">
+          GEMINI (Google)
+        </button>
+      </div>
+    </div>
+    <!-- Model -->
+    <div>
+      <label class="block text-[10px] text-outline uppercase mb-sm tracking-wider">Model_Core</label>
+      <select id="model-select" class="w-full bg-surface-container border border-outline-variant text-on-surface text-[12px] p-sm focus:outline-none focus:border-primary">
+        <option value="anthropic/claude-sonnet-4-5">anthropic/claude-sonnet-4-5</option>
+        <option value="anthropic/claude-opus-4">anthropic/claude-opus-4</option>
+        <option value="google/gemini-2.0-flash-001">google/gemini-2.0-flash-001</option>
+        <option value="google/gemini-2.5-pro">google/gemini-2.5-pro</option>
+        <option value="deepseek/deepseek-chat-v3-0324">deepseek/deepseek-chat-v3-0324</option>
+        <option value="meta-llama/llama-4-maverick">meta-llama/llama-4-maverick</option>
+      </select>
+    </div>
+    <!-- Synthesis Flags -->
+    <div>
+      <label class="block text-[10px] text-outline uppercase mb-sm tracking-wider">Synthesis_Flags</label>
+      <div class="space-y-md text-[12px]">
+        <div class="flex items-center justify-between">
+          <span>Aggressive_Dedup</span>
+          <div class="w-8 h-4 bg-primary relative cursor-pointer"><div class="absolute right-1 top-1 w-2 h-2 bg-on-primary"></div></div>
+        </div>
+        <div class="flex items-center justify-between">
+          <span>Strict_Metadata</span>
+          <div class="w-8 h-4 bg-outline-variant relative cursor-pointer"><div class="absolute left-1 top-1 w-2 h-2 bg-on-surface-variant"></div></div>
+        </div>
+        <div class="flex items-center justify-between">
+          <span>Deep_Recursive</span>
+          <div class="w-8 h-4 bg-primary relative cursor-pointer"><div class="absolute right-1 top-1 w-2 h-2 bg-on-primary"></div></div>
+        </div>
+      </div>
+    </div>
+    <!-- Vault Path -->
+    <div>
+      <label class="block text-[10px] text-outline uppercase mb-sm tracking-wider">Vault_Path</label>
+      <div class="text-[11px] text-primary px-sm py-xs border border-outline-variant bg-surface-container-lowest font-mono break-all" id="vault-path-display">
+        D:\NotebookLM_Claude
+      </div>
+    </div>
+    <div class="pt-xl">
+      <button class="w-full py-md border border-error/50 text-error font-bold uppercase hover:bg-error hover:text-on-error transition-all text-[11px]">
+        Terminate_All_Processes
+      </button>
+    </div>
+  </div>
+</aside>
+
+<!-- ── New Job Modal ─────────────────────────────────────────────── -->
+<div id="job-modal" class="fixed inset-0 z-[100] bg-black/80 items-center justify-center">
+  <div class="bg-surface-container border border-outline-variant w-[560px] max-w-[90vw]">
+    <!-- Modal header -->
+    <div class="flex justify-between items-center px-lg py-md border-b border-outline-variant bg-surface-container-highest">
+      <span class="text-[11px] font-bold text-on-surface uppercase tracking-widest">NEW_JOB :: URL_SUBMISSION</span>
+      <button onclick="closeNewJob()" class="material-symbols-outlined text-outline hover:text-error transition-colors">close</button>
+    </div>
+    <!-- URL input -->
+    <div class="p-lg">
+      <label class="block text-[10px] text-outline uppercase mb-sm tracking-wider">Target URLs (one per line)</label>
+      <textarea id="url-input" rows="5"
+        class="w-full bg-surface-container-lowest border border-outline-variant text-primary text-[12px] p-sm focus:outline-none focus:border-primary resize-none font-mono placeholder-outline"
+        placeholder="https://arxiv.org/abs/2404.01234&#10;https://youtube.com/watch?v=...&#10;https://github.com/org/repo"></textarea>
+
+      <!-- Type detection preview -->
+      <div class="mt-sm space-y-xs" id="url-preview"></div>
+
+      <!-- Platform + Model override for this job -->
+      <div class="flex gap-sm mt-lg">
+        <div class="flex-1">
+          <label class="block text-[10px] text-outline uppercase mb-xs tracking-wider">Platform</label>
+          <select id="job-platform" onchange="updateJobModels()" class="w-full bg-surface-container border border-outline-variant text-on-surface text-[11px] p-xs focus:outline-none focus:border-primary">
+            <option value="openrouter" selected>OpenRouter</option>
+            <option value="claude">Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </div>
+        <div class="flex-1">
+          <label class="block text-[10px] text-outline uppercase mb-xs tracking-wider">Model</label>
+          <select id="job-model" class="w-full bg-surface-container border border-outline-variant text-on-surface text-[11px] p-xs focus:outline-none focus:border-primary">
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-opus-4-7">claude-opus-4-7</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <!-- Modal footer -->
+    <div class="flex justify-end gap-sm px-lg py-md border-t border-outline-variant">
+      <button onclick="closeNewJob()" class="px-md py-sm border border-outline text-outline text-[11px] uppercase hover:border-on-surface hover:text-on-surface transition-colors">
+        Cancel
+      </button>
+      <button onclick="submitJobs()" id="submit-btn"
+        class="px-lg py-sm border border-primary bg-primary/10 text-primary font-bold text-[11px] uppercase hover:bg-primary hover:text-on-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+        Execute_Jobs
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+const WS_URL = 'ws://localhost:8000/ws/logs';
+
+const MODELS = {
+  openrouter: [
+    'anthropic/claude-sonnet-4-5',
+    'anthropic/claude-opus-4',
+    'google/gemini-2.0-flash-001',
+    'google/gemini-2.5-pro',
+    'deepseek/deepseek-chat-v3-0324',
+    'meta-llama/llama-4-maverick',
+  ],
+  claude: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+  openai: ['gpt-4o', 'gpt-4o-mini'],
+  gemini: ['gemini-1.5-pro', 'gemini-1.5-flash'],
+};
+
+const SOURCE_ICONS = { paper: '📄', video: '🎥', repo: '💻' };
+const SOURCE_LABEL = { paper: 'PAPER', video: 'VIDEO', repo: 'REPO' };
+
+// ── WebSocket ─────────────────────────────────────────────────────
+
+let ws = null;
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    setWsStatus(true);
+    appendLog('[SYSTEM] WebSocket connected to backend.');
+  };
+  ws.onmessage = (e) => appendLog(e.data);
+  ws.onclose = () => {
+    setWsStatus(false);
+    appendLog('[SYSTEM] WebSocket disconnected. Retrying in 5s...');
+    setTimeout(connectWS, 5000);
+  };
+  ws.onerror = () => setWsStatus(false);
+}
+
+function setWsStatus(online) {
+  const dot = document.getElementById('ws-dot');
+  const label = document.getElementById('ws-label');
+  dot.className = online ? 'w-2 h-2 bg-primary pulse-dot' : 'w-2 h-2 bg-outline-variant';
+  label.textContent = online ? 'WS_ONLINE' : 'WS_OFFLINE';
+  label.className = online ? 'text-[10px] text-primary' : 'text-[10px] text-outline';
+}
+
+function appendLog(msg) {
+  const el = document.getElementById('log-output');
+  const line = document.createElement('div');
+  // Colour-code by keyword
+  if (msg.includes('SUCCESS') || msg.includes('SAVED')) line.className = 'text-tertiary';
+  else if (msg.includes('ERR') || msg.includes('CRITICAL')) line.className = 'text-error';
+  else if (msg.includes('RUNNING') || msg.includes('SUMMARIZING') || msg.includes('FETCHING')) line.className = 'text-primary';
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  if (el.children.length > 80) el.removeChild(el.children[0]);
+}
+
+// ── Job management ─────────────────────────────────────────────────
+
+let jobPollInterval = null;
+
+async function loadJobs() {
+  try {
+    const r = await fetch(`${API}/api/jobs`);
+    const { jobs } = await r.json();
+    renderJobs(jobs);
+    const active = jobs.filter(j => ['queued','fetching','summarizing','writing'].includes(j.status)).length;
+    document.getElementById('active-count').textContent = active;
+  } catch (_) {}
+}
+
+function renderJobs(jobs) {
+  const grid = document.getElementById('job-grid');
+  const empty = document.getElementById('empty-state');
+  if (!jobs.length) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  // Sync cards — update existing, add new
+  const existing = new Set([...grid.querySelectorAll('[data-job-id]')].map(e => e.dataset.jobId));
+  jobs.forEach(job => {
+    if (existing.has(job.job_id)) {
+      updateCard(job);
+    } else {
+      grid.insertBefore(createCard(job), empty);
+    }
+  });
+}
+
+function createCard(job) {
+  const card = document.createElement('div');
+  card.dataset.jobId = job.job_id;
+  card.className = 'border border-outline-variant bg-surface-container p-md transition-colors';
+  card.innerHTML = cardInnerHTML(job);
+  return card;
+}
+
+function updateCard(job) {
+  const card = document.querySelector(`[data-job-id="${job.job_id}"]`);
+  if (card) card.innerHTML = cardInnerHTML(job);
+}
+
+function cardInnerHTML(job) {
+  const icon = SOURCE_ICONS[job.source_type] || '📄';
+  const shortUrl = job.url.length > 45 ? job.url.slice(0, 45) + '...' : job.url;
+  const statusClass = {
+    queued: 'text-outline', fetching: 'text-primary', summarizing: 'text-primary',
+    writing: 'text-primary', done: 'text-tertiary', failed: 'text-error',
+  }[job.status] || 'text-outline';
+  const pulse = ['fetching','summarizing','writing'].includes(job.status) ? '<span class="pulse-dot">●</span>' : '';
+
+  let progressBar = '';
+  if (['fetching','summarizing','writing'].includes(job.status)) {
+    progressBar = `<div class="flex justify-between items-center mt-sm">
+      <div class="w-2/3 h-1 bg-surface-container-highest relative">
+        <div class="absolute top-0 left-0 h-full bg-primary transition-all" style="width:${job.progress}%"></div>
+      </div>
+      <span class="text-[10px]">${job.progress}%</span>
+    </div>`;
+  }
+
+  let filesHtml = '';
+  if (job.status === 'done' && job.files?.length) {
+    const chips = job.files.map(f => {
+      const color = {main:'text-primary border-primary/30', atomic:'text-purple-400 border-purple-400/30', moc:'text-orange-400 border-orange-400/30'}[f.file_type] || 'text-outline border-outline/30';
+      const action = f.action === 'appended' ? '↳' : '+';
+      return `<span class="text-[9px] border px-xs py-0 ${color}">${action} ${f.filename}</span>`;
+    }).join('');
+    filesHtml = `<div class="flex flex-wrap gap-xs mt-sm">${chips}</div>`;
+  }
+
+  let errorHtml = '';
+  if (job.status === 'failed') {
+    errorHtml = `<div class="text-[10px] text-error mt-xs">${job.error || 'Unknown error'}</div>
+    <button onclick="retryJob('${job.job_id}')" class="mt-sm text-[10px] text-error border border-error/30 px-xs py-0.5 uppercase hover:bg-error/10">Retry_Debug</button>`;
+  }
+
+  return `
+    <div class="flex justify-between items-start mb-sm">
+      <div class="text-[10px] text-outline">${icon} ${job.job_id}</div>
+      <div class="${statusClass} text-[10px] font-bold">[${job.status.toUpperCase()}] ${pulse}</div>
+    </div>
+    <div class="text-[11px] font-bold text-on-surface mb-xs truncate uppercase">${shortUrl}</div>
+    <div class="text-[10px] text-outline">${job.platform.toUpperCase()} :: ${job.model}</div>
+    ${progressBar}
+    ${filesHtml}
+    ${errorHtml}
+  `;
+}
+
+async function retryJob(jobId) {
+  await fetch(`${API}/api/jobs/${jobId}/retry`, { method: 'POST' });
+}
+
+// ── New Job Modal ──────────────────────────────────────────────────
+
+function openNewJob() {
+  document.getElementById('job-modal').classList.add('open');
+  document.getElementById('url-input').focus();
+}
+function closeNewJob() {
+  document.getElementById('job-modal').classList.remove('open');
+  document.getElementById('url-input').value = '';
+  document.getElementById('url-preview').innerHTML = '';
+}
+
+document.getElementById('url-input').addEventListener('input', function() {
+  const lines = this.value.split('\n').map(l => l.trim()).filter(Boolean);
+  const preview = document.getElementById('url-preview');
+  preview.innerHTML = lines.map(url => {
+    const type = detectType(url);
+    return `<div class="flex items-center gap-xs text-[10px]">
+      <span class="border border-outline-variant px-xs py-0 text-outline">${SOURCE_ICONS[type]} ${SOURCE_LABEL[type]}</span>
+      <span class="text-outline truncate">${url.slice(0, 60)}</span>
+    </div>`;
+  }).join('');
+});
+
+function detectType(url) {
+  if (/youtube\.com|youtu\.be/.test(url)) return 'video';
+  if (/github\.com\/[^/]+\/[^/]+/.test(url)) return 'repo';
+  return 'paper';
+}
+
+function updateJobModels() {
+  const platform = document.getElementById('job-platform').value;
+  const sel = document.getElementById('job-model');
+  sel.innerHTML = (MODELS[platform] || []).map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+async function submitJobs() {
+  const urls = document.getElementById('url-input').value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!urls.length) return;
+  const platform = document.getElementById('job-platform').value;
+  const model = document.getElementById('job-model').value;
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  try {
+    const r = await fetch(`${API}/api/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls, platform, model }),
+    });
+    const data = await r.json();
+    closeNewJob();
+    appendLog(`[DISPATCH] ${data.jobs.length} JOB(S) QUEUED`);
+  } catch (e) {
+    appendLog(`[ERR] Failed to submit jobs: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Execute_Jobs';
+  }
+}
+
+// ── Platform selector ──────────────────────────────────────────────
+
+function selectPlatform(platform) {
+  document.querySelectorAll('.platform-btn').forEach(btn => {
+    const active = btn.dataset.platform === platform;
+    btn.className = active
+      ? 'platform-btn w-full text-left px-md py-sm border border-primary bg-primary/10 text-primary text-[12px] flex justify-between items-center'
+      : 'platform-btn w-full text-left px-md py-sm border border-outline-variant text-on-surface-variant text-[12px] hover:border-outline hover:text-on-surface transition-colors';
+    btn.innerHTML = btn.innerHTML.replace(/<span.*<\/span>/, '');
+    if (active) btn.innerHTML += '<span class="material-symbols-outlined text-sm">check_circle</span>';
+  });
+  // Sync modal platform selector
+  document.getElementById('job-platform').value = platform;
+  updateJobModels();
+}
+
+function openSettings() {
+  appendLog('[INFO] Settings drawer is always visible on the right panel.');
+}
+
+// ── Load settings from backend ─────────────────────────────────────
+
+async function loadSettings() {
+  try {
+    const r = await fetch(`${API}/api/settings`);
+    const s = await r.json();
+    document.getElementById('vault-path-display').textContent = s.vault_path;
+    appendLog(`[INIT] Vault: ${s.vault_path} | Platform: ${s.default_platform.toUpperCase()}`);
+  } catch (_) {
+    appendLog('[WARN] Backend not reachable. Start with: uvicorn backend.main:app --reload');
+  }
+}
+
+// ── Ambient flicker ────────────────────────────────────────────────
+
+setInterval(() => {
+  document.body.style.opacity = Math.random() > 0.99 ? '0.98' : '1';
+}, 100);
+
+// ── Init ───────────────────────────────────────────────────────────
+
+connectWS();
+loadSettings();
+loadJobs();
+jobPollInterval = setInterval(loadJobs, 3000);
+</script>
+</body>
+</html>

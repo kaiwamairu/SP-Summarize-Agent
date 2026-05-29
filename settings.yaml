@@ -1,0 +1,52 @@
+vault_path: "D:\\NotebookLM_Claude"
+
+default_platform: openrouter
+
+platforms:
+  openrouter:
+    model: anthropic/claude-sonnet-4-5
+    models_available:
+      - anthropic/claude-sonnet-4-5
+      - anthropic/claude-opus-4
+      - google/gemini-2.0-flash-001
+      - google/gemini-2.5-pro
+      - deepseek/deepseek-chat-v3-0324
+      - meta-llama/llama-4-maverick
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    max_tokens: 8192
+  claude:
+    model: claude-sonnet-4-6
+    models_available:
+      - claude-sonnet-4-6
+      - claude-opus-4-7
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 8192
+  openai:
+    model: gpt-4o
+    models_available:
+      - gpt-4o
+      - gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 8192
+  gemini:
+    model: gemini-1.5-pro
+    models_available:
+      - gemini-1.5-pro
+      - gemini-1.5-flash
+    api_key_env: GOOGLE_API_KEY
+    max_tokens: 8192
+
+synthesis_flags:
+  aggressive_deduplication: true
+  strict_metadata_schema: false
+  deep_recursive_summarization: true
+  confidence_threshold: 0.85
+
+vault_structure:
+  papers: "20-Papers"
+  videos: "30-Videos"
+  repos: "40-Repos"
+  atomic_notes: "10-Atomic-Notes"
+  mocs: "00-MOCs"
+  inbox: "90-Inbox"

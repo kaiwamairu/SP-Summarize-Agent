@@ -1,0 +1,397 @@
+# Code Repo Summary Prompt v2
+
+**วิธีใช้:** ใช้ gitingest.com แปลง repo เป็น text ก่อน (วิธีใน `README.md`) → copy `===PROMPT===` → paste เข้า Claude พร้อม repo content
+
+**ต่างจาก v1:**
+- Obsidian Callouts + nested tags + atomic notes (สำหรับ design patterns) + MOC
+- คงไว้จาก v1: architecture diagram, sequence diagrams, anti-hallucination, `[เดา]` marker
+
+---
+
+```
+===PROMPT===
+
+คุณคือ senior engineer ที่ช่วยสรุป GitHub repo ให้ engineer คนอื่นเข้าใจใน 5-10 นาที โดยไม่ต้อง clone เอง ผลลัพธ์เก็บใน Obsidian vault แบบ PKM ใช้ทั้งโดยมนุษย์และ AI สำหรับ RAG/indexing
+
+## INPUT (user เติม)
+
+- Repo URL: <github url>
+- Repo description (จาก GitHub page): <ถ้ามี>
+- Stars / last commit: <ถ้าทราบ>
+- Repo content: <paste output จาก gitingest.com หรือ repomix ข้างล่าง>
+
+## โครงสร้าง OUTPUT (แยกเป็นหลายไฟล์)
+
+Output แบ่งเป็น sections คั่นด้วย `═══ FILE: <filename> ═══`:
+
+1. **Main note** (1 ไฟล์) — สรุป repo
+2. **Atomic notes** (0-3 ไฟล์) — เฉพาะถ้า repo ใช้ design pattern / algorithm ที่ standalone และ reusable
+3. **MOC entry** (1 ไฟล์) — สำหรับหัวข้อใหญ่
+
+## ขั้นตอน
+
+1. **Scan โครงสร้าง:**
+   - ภาษาหลัก, framework, build tool
+   - Entry point จริง (file ที่รันคำสั่งเริ่มจากตรงไหน)
+   - Top-level folder layout
+
+2. **ระบุ key flows** (2-3 อัน):
+   - User-facing หรือ system flow ที่สำคัญที่สุด เช่น auth, request lifecycle, data ingestion
+   - แต่ละ flow ต้อง map กับไฟล์/function ที่มีอยู่จริง
+
+3. **Pick top 10-15 files** ที่ถ้าอยากเข้าใจ repo ต้องอ่าน
+   - ไม่เอา: config, test, auto-generated, lockfile
+   - เน้น: core logic, entry points, public API
+
+4. **ระบุ design patterns / algorithms ที่ reusable** → atomic notes
+   เงื่อนไขที่ต้องสร้าง atomic note:
+   - มีชื่อชัด (Repository Pattern, Circuit Breaker, Token Bucket, A* Search, ฯลฯ)
+   - เห็น implementation พอที่จะอธิบาย mechanism ได้
+   - Reusable กับ project อื่น
+   - **ไม่ใช่ทุก repo จะมี atomic note** — utility script, wrapper, CRUD app ส่วนใหญ่ไม่มี pattern เด่น
+
+5. **เขียน main note + atomic notes + MOC entry**
+
+6. **Self-check ก่อน output:**
+   - Mermaid diagram ทุกอันชี้ไปยังไฟล์/function ที่มีจริงในโค้ดไหม?
+   - "How to Run" command ทดสอบในใจแล้วน่าจะรันได้ไหม?
+   - ตรงไหนเดา ระบุ `[เดา]` แล้วหรือยัง?
+   - Atomic notes อ่านแยกได้ standalone ไหม?
+   - Callout syntax + Wikilinks ถูกไหม?
+
+7. แก้แล้ว output **เฉพาะ final version**
+
+## กฎการเขียน
+
+- **ภาษาไทย** เป็นหลัก, แต่ **ชื่อไฟล์ / function / class / library / framework เก็บภาษาอังกฤษ** ใน `code style`
+- **Diagram ใช้ mermaid syntax**:
+  - Architecture: `graph TD` หรือ `flowchart LR`
+  - Flow: `sequenceDiagram`
+- **ถ้าเดา ระบุ `[เดา]`** ข้างหน้าประโยคนั้น
+- **อย่าโชว์ code block ยาวเกิน 10 บรรทัด** — สรุปเป็นคำพูดแทน
+- **Callout types**: `tldr`, `info`, `example`, `success`, `warning`, `question`, `quote`, `tip`, `abstract`
+- **Tags**: nested format เช่น `#repo`, `#language/python`, `#framework/fastapi`, `#domain/ml`, `#pattern/agent-orchestration`
+- **File naming**:
+  - Main note: `<repo-name>.md` (lowercase, dash-separated) เช่น `langgraph.md`
+  - Atomic note: `<Pattern Name>.md` (Title Case) เช่น `Circuit Breaker.md`, `Token Bucket Rate Limiting.md`
+  - MOC: `<Topic> MOC.md`
+
+---
+
+## OUTPUT TEMPLATE
+
+═══ FILE: <repo-name>.md ═══
+
+---
+title: <repo name>
+description: "<repo tagline จาก GitHub หรือ summary 1 บรรทัด>"
+language: [<หลัก>, <รอง>]
+framework: [<frameworks ที่ใช้>]
+stars: <ถ้ารู้ ไม่งั้นเว้น>
+license: <SPDX identifier เช่น MIT, Apache-2.0>
+last_commit: <YYYY-MM-DD ถ้ารู้>
+tags:
+  - repo
+  - language/<หลัก>
+  - framework/<หลัก>
+  - domain/<...>
+  - pattern/<หลัก ถ้ามี>
+source_url: <github url>
+date_summarized: <YYYY-MM-DD>
+moc: "[[<MOC name>]]"
+atomic_notes:
+  - "[[<pattern 1>]]"
+status: summarized
+---
+
+> [!tldr] TL;DR
+> <1-2 ประโยค: repo นี้ทำอะไร, แก้ปัญหาอะไร, ใครควรสนใจ>
+
+> [!quote] Citation
+> <author/org>. (<year>). *<repo name>*. GitHub. <url>
+
+# 🧠 Background & Concept
+
+> [!info] บริบท
+> <1-2 ประโยค: ทำไม repo นี้เกิดมา, แก้ปัญหาอะไรที่ existing tool ทำไม่ได้>
+
+# 🎯 The Problem It Solves
+
+> [!question] ปัญหาหลักที่ repo นี้แก้
+> <1 ประโยค>
+
+**Pain points ที่ตอบโจทย์:**
+- <pain 1>
+- <pain 2>
+
+**ใครควรใช้ / ไม่ควรใช้:**
+- ✅ เหมาะกับ: <use case>
+- ❌ ไม่เหมาะกับ: <use case>
+
+# 🏗️ Architecture Overview
+
+> [!example] Tech stack หลัก
+> - **Language**: ...
+> - **Framework**: ...
+> - **Database / Storage**: ...
+> - **Deploy target**: ...
+> - **Notable dependencies**: ...
+
+```mermaid
+graph TD
+    Client[<Client>] --> API[<API layer>]
+    API --> Logic[<Core logic>]
+    Logic --> DB[<Storage>]
+```
+
+**Entry Points:**
+- `<file path>` — <ทำอะไรเมื่อรัน command>
+- `<file path>` — ...
+
+**Design Patterns ที่เห็น (ดู atomic notes):**
+- [[<Pattern 1>]] — บทบาทใน repo นี้
+- [[<Pattern 2>]] — ...
+
+# 📁 Module Map (top 10-15 files)
+
+| File / Folder | Role | ทำไมต้องอ่าน |
+|---|---|---|
+| `src/x.py` | <role> | <why critical> |
+| `lib/y/` | <role> | ... |
+| ... | ... | ... |
+
+# 🔄 Key Flows
+
+## Flow 1: <ชื่อ flow ภาษาไทย เช่น "การยืนยันตัวตนผู้ใช้">
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Client as src/client.ts
+    participant Server as src/server.py
+    participant DB
+    
+    User->>Client: <action>
+    Client->>Server: <call>
+    Server->>DB: <query>
+    DB-->>Server: <result>
+    Server-->>Client: <response>
+```
+
+**อธิบาย:** <2-4 ประโยค เล่าเป็นภาษาคน + อ้างไฟล์/function สำคัญในเส้นทาง>
+
+## Flow 2: <ชื่อ flow>
+
+```mermaid
+sequenceDiagram
+    ...
+```
+
+**อธิบาย:** ...
+
+## Flow 3: <ชื่อ flow>
+
+(ถ้ามี 3 flow สำคัญ — บางครั้ง 2 ก็พอ)
+
+# 🧩 Notable Logic
+
+## <ชื่อ algorithm / pattern>
+- **อยู่ใน**: `path/to/file.py` → `function_name()`
+- **ทำไมน่าสนใจ**: <intuition>
+- **Pseudocode สั้นๆ**:
+  ```
+  for each ...
+    if ...
+  ```
+
+## <อีก algorithm/pattern>
+...
+
+# 🚀 How to Run
+
+> [!success] Quick start
+> ```bash
+> # Install
+> <commands>
+> 
+> # Run
+> <commands>
+> 
+> # Test (ถ้ามี)
+> <commands>
+> ```
+
+**Prerequisites:** <Python version, Node version, system deps, env vars>
+
+# 🔌 Extension Points
+
+- **ตรงไหน customizable**: <plugin folder, config file, env var>
+- **ตรงไหนเอาไปต่อยอดได้**: <module ที่ standalone พอจะ extract>
+
+# ⚠️ Concerns & Limitations
+
+> [!warning] ข้อสังเกต
+> <สรุป 1-2 ประโยค>
+
+- **Test coverage**: <observation — มี test folder? coverage report? CI badges?>
+- **Dependencies**: <stale? heavy? security flags?>
+- **Maintenance signal**: <last commit, # active contributors, # open issues vs closed>
+- **Documentation**: <docs ครบไหม? README พอไหม?>
+- **Scalability constraints**: <bottleneck ที่เห็น — `[เดา]` ถ้าไม่แน่ใจ>
+
+# 🆚 Alternatives & Comparisons
+
+(ถ้านึกออก project ที่ทำเรื่องเดียวกัน — ถ้าไม่นึก ใช้ `[ต้องค้นเพิ่ม]`)
+
+- **<alt name>**: <ต่างยังไง — เร็วกว่า? feature เยอะกว่า? simpler?>
+- **<alt name>**: ...
+
+# 💭 My Reflections
+
+> [!tip] สำคัญที่สุดสำหรับฉัน
+> <Claude เสนอ 2-3 ไอเดียเริ่มต้น ระบุ `[suggestion]`>
+
+**ใช้กับงานของฉันยังไง:** `[suggestion]`
+- <use case ที่เป็นไปได้>
+- <use case อีกอัน>
+
+**Pattern ที่เอาไปใช้ในโปรเจคต์อื่นได้:** `[suggestion]`
+- <pattern + context>
+
+**ความเชื่อมโยงกับ note อื่นใน vault:** `[guess]`
+- <ถ้านึกออก>
+
+# 🔗 Links
+
+- **MOC**: [[<MOC name>]]
+- **Atomic Notes**: [[<pattern 1>]]
+- **Related Repos / Papers**: <ถ้านึกออก; ไม่งั้น `[ต้องค้นเพิ่ม]`>
+
+# ❓ คำถามที่ยังค้าง
+
+- <สิ่งที่ repo ไม่ได้อธิบาย หรืออยากรู้ต่อ>
+- <design decision ที่ไม่ obvious — `[เดา]` ว่าเลือกเพราะอะไร>
+
+═══ FILE: <Pattern Name>.md [ATOMIC NOTE] ═══
+
+(เฉพาะถ้ามี named reusable pattern — ข้ามถ้าไม่มี)
+
+---
+type: atomic
+tags:
+  - atomic
+  - pattern
+  - language/<...>
+  - domain/<...>
+source_repos:
+  - "[[<repo note name>]]"
+related:
+  - "[[<related pattern>]]"
+date_created: <YYYY-MM-DD>
+---
+
+> [!abstract] นิยาม 1 ประโยค
+> <Pattern X> คือ <self-contained definition>
+
+# What problem does it solve?
+
+<1-2 ย่อหน้า: ปัญหาที่ pattern นี้ตอบโจทย์>
+
+# How it works
+
+<2-3 ย่อหน้าอธิบายกลไก self-contained — ไม่ใช้คำว่า "ตามที่ repo ใช้" เขียนแบบ generic>
+
+```
+<pseudocode สั้น หรือ structural diagram>
+```
+
+# When to use
+
+- ใช้เมื่อ <context 1>
+- ใช้เมื่อ <context 2>
+
+# When NOT to use
+
+- หลีกเลี่ยงเมื่อ <context — มี trade-off อะไร>
+
+# Trade-offs
+
+- **ข้อดี**: <benefits>
+- **ข้อเสีย**: <costs/complexity>
+
+# Variants / Related Patterns
+
+- **[[<similar pattern>]]** — ต่างยังไง
+- **[[<alternative pattern>]]** — เลือกอันไหนเมื่อไหร่
+
+# Examples in the Wild
+
+- [[<repo note name>]] — <ใช้ตรงไหน, ทำไม>
+- <ถ้านึกออก project อื่นที่ใช้> — `[suggestion]`
+
+═══ FILE: <MOC name>.md [MOC — append if exists, create if not] ═══
+
+**คำแนะนำสำหรับ user:**
+- ถ้า MOC นี้ **มีอยู่แล้ว** → append แค่ entry ภายใต้ "Repos" + เพิ่ม atomic notes
+- ถ้า **ไม่มี** → สร้างไฟล์ใหม่ด้วยเนื้อหาทั้งหมด
+
+---
+type: MOC
+tags:
+  - moc
+  - domain/<...>
+date_created: <YYYY-MM-DD>
+---
+
+> [!info] เกี่ยวกับ MOC นี้
+> รวม repo, paper, pattern ในหัวข้อ <topic description>
+
+# 💻 Repos
+
+- [[<this repo note>]] (<Year>) — <one-line description>
+
+# 📚 Papers (ถ้ามี cross-reference)
+
+- (เว้นว่างถ้ายังไม่มี)
+
+# 🧩 Key Patterns (Atomic Notes)
+
+- [[<pattern 1>]]
+
+# ❓ Open Questions in this Topic
+
+- <questions ที่เกี่ยวกับ design space — Claude เสนอจาก reading>
+
+# 🔗 Related MOCs
+
+- [[<adjacent MOC>]] `[suggestion]`
+
+===END PROMPT===
+```
+
+---
+
+**Repo content อยู่ที่ไหน:** [paste output จาก gitingest.com ข้างล่าง prompt ใน Claude]
+
+---
+
+## Tips เพิ่มเติม
+
+**Repo ใหญ่มาก (> 200k tokens):**
+- ใช้ "Include patterns" ใน gitingest เลือกเฉพาะ `src/`, `README.md`, `docs/`, 1-2 ไฟล์จาก `tests/`
+- หรือสรุปทีละ folder: ขอ flow แรก แล้วค่อยขอ flow ที่ 2 ใน turn ถัดไป
+
+**Repo ที่ไม่มี README ดีๆ:**
+- บอก Claude ว่า "README สั้นมาก — infer จาก code structure + comments + commit history แทน"
+- คุณภาพจะลดลง แต่ยังใช้ได้
+
+**Monorepo:**
+- สรุปแต่ละ package แยกกัน อย่ายัดทั้ง mono ทีเดียว
+- แต่ละ package = 1 main note + อาจมี atomic notes ร่วมกัน
+
+**Library vs Application:**
+- Library → เน้น "Notable Logic" + API surface, ตัด "How to Run" เป็น "How to install + use"
+- Application → เน้น "Key Flows" + "Architecture", ตัด API surface
+
+**Repo ไม่มี pattern เด่น (CRUD app, simple script):**
+- ข้าม atomic notes section ได้ — ไม่ต้องบังคับสร้าง

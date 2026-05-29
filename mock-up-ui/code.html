@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Summarize Agent | Terminal Console</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Inter:wght@400;600;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #050505;
+            color: #bac3ff;
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+        }
+        .material-symbols-outlined {
+            font-size: 18px;
+            vertical-align: middle;
+        }
+        /* Custom Scrollbar for Terminal aesthetic */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: #0d0e13; }
+        ::-webkit-scrollbar-thumb { background: #333333; }
+        ::-webkit-scrollbar-thumb:hover { background: #454651; }
+
+        .scanline {
+            width: 100%;
+            height: 2px;
+            background: rgba(186, 195, 255, 0.02);
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 100;
+            animation: scanline 8s linear infinite;
+        }
+        @keyframes scanline {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        /* Override rounded corners for Terminal Style */
+        * { border-radius: 0 !important; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-container": "#484949",
+                        "on-tertiary-fixed": "#281900",
+                        "secondary-fixed-dim": "#c7c6c6",
+                        "surface": "#050505", /* Overridden for terminal style */
+                        "primary": "#bac3ff",
+                        "on-primary-fixed": "#00105b",
+                        "surface-container-low": "#0d0e13",
+                        "on-tertiary": "#432c00",
+                        "surface-variant": "#1a1a1a",
+                        "secondary-fixed": "#e3e2e2",
+                        "tertiary-container": "#976900",
+                        "surface-container-highest": "#242424",
+                        "on-secondary-fixed-variant": "#464747",
+                        "on-tertiary-fixed-variant": "#5f4100",
+                        "surface-container-high": "#161616",
+                        "on-secondary-fixed": "#1a1c1c",
+                        "outline-variant": "#333333", /* Dim indigo/grey border */
+                        "error": "#ffb4ab",
+                        "tertiary-fixed": "#ffdeac",
+                        "on-secondary-container": "#b8b8b8",
+                        "tertiary-fixed-dim": "#f6bd58",
+                        "inverse-on-surface": "#303036",
+                        "inverse-surface": "#e3e1e9",
+                        "surface-container": "#0f0f0f",
+                        "surface-bright": "#1a1a1a",
+                        "on-error-container": "#ffdad6",
+                        "on-surface-variant": "#c6c5d3",
+                        "on-error": "#690005",
+                        "secondary": "#c7c6c6",
+                        "primary-container": "#5c6bc0",
+                        "primary-fixed": "#dee0ff",
+                        "on-primary-fixed-variant": "#2f3f92",
+                        "inverse-primary": "#4858ab",
+                        "on-surface": "#e3e1e9",
+                        "on-background": "#e3e1e9",
+                        "error-container": "#93000a",
+                        "on-secondary": "#2f3131",
+                        "surface-tint": "#bac3ff",
+                        "surface-dim": "#050505",
+                        "on-tertiary-container": "#fff6ee",
+                        "tertiary": "#f6bd58",
+                        "surface-container-lowest": "#020202",
+                        "primary-fixed-dim": "#bac3ff",
+                        "on-primary": "#15267b",
+                        "background": "#050505",
+                        "on-primary-container": "#f8f6ff",
+                        "outline": "#454651"
+                    },
+                    "spacing": {
+                        "lg": "16px",
+                        "gutter": "12px",
+                        "margin": "16px",
+                        "base": "4px",
+                        "xl": "24px",
+                        "sm": "8px",
+                        "md": "12px",
+                        "xs": "4px",
+                        "drawer_width": "320px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["JetBrains Mono"],
+                        "label-lg": ["JetBrains Mono"],
+                        "label-md": ["JetBrains Mono"],
+                        "body-sm": ["JetBrains Mono"],
+                        "mono-sm": ["JetBrains Mono"],
+                        "headline-lg": ["JetBrains Mono"],
+                        "body-lg": ["JetBrains Mono"],
+                        "headline-sm": ["JetBrains Mono"],
+                        "headline-md": ["JetBrains Mono"]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="dark selection:bg-primary selection:text-on-primary">
+<div class="scanline"></div>
+<!-- Predicted TopAppBar Mapping -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-lg h-12 bg-surface border-b border-outline-variant">
+<div class="flex items-center gap-md">
+<span class="font-headline-md text-headline-md font-bold text-primary tracking-tighter">SUMMARIZE_AGENT_v2.0</span>
+<span class="text-xs text-outline font-mono-sm ml-sm opacity-50">STABLE_BUILD_X64</span>
+</div>
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-xs px-sm py-xs border border-outline-variant bg-surface-container-lowest">
+<span class="text-label-md text-primary opacity-70">CPU: 24.4%</span>
+<div class="w-[40px] h-1 bg-outline-variant relative overflow-hidden">
+<div class="absolute left-0 top-0 h-full bg-primary w-1/4"></div>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-surface-container-highest transition-colors p-1">search</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-surface-container-highest transition-colors p-1">settings</button>
+</div>
+</div>
+</header>
+<!-- Sidebar Integration (SideNavBar from JSON) -->
+<aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-[240px] flex flex-col bg-surface-container-low border-r border-outline-variant">
+<div class="p-lg border-b border-outline-variant">
+<div class="flex items-center gap-md mb-xs">
+<div class="w-8 h-8 bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-headline-sm">K</div>
+<div>
+<div class="font-label-lg text-on-surface leading-none">ROOT_USER</div>
+<div class="text-[10px] text-tertiary uppercase mt-1">Clinical Mode Active</div>
+</div>
+</div>
+</div>
+<nav class="flex-1 py-md">
+<!-- Dashboard (Active) -->
+<a class="flex items-center gap-md px-lg py-sm text-primary font-bold border-r-2 border-primary bg-surface-container-high transition-all duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-lg uppercase tracking-wider">Dashboard</span>
+</a>
+<!-- Vault -->
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all duration-200" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span class="font-label-lg uppercase tracking-wider">Vault</span>
+</a>
+<!-- Archive -->
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all duration-200" href="#">
+<span class="material-symbols-outlined">archive</span>
+<span class="font-label-lg uppercase tracking-wider">Archive</span>
+</a>
+<!-- Settings -->
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-lg uppercase tracking-wider">Settings</span>
+</a>
+</nav>
+<div class="p-lg border-t border-outline-variant">
+<div class="text-[10px] text-outline font-mono-sm uppercase mb-xs">Storage_Usage</div>
+<div class="w-full h-1 bg-outline-variant">
+<div class="bg-primary h-full w-[68%]"></div>
+</div>
+<div class="flex justify-between mt-xs text-[9px] text-outline">
+<span>682 GB</span>
+<span>1.0 TB</span>
+</div>
+</div>
+</aside>
+<!-- Main Workspace -->
+<main class="ml-[240px] mr-drawer_width mt-12 p-gutter h-[calc(100vh-48px)] overflow-y-auto bg-surface">
+<!-- Dashboard Header -->
+<div class="flex justify-between items-end mb-xl border-b border-outline-variant pb-md">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface uppercase tracking-tight">System_Control_Panel</h1>
+<p class="text-body-sm text-outline mt-xs">Active Tasks: 12 | Node Status: <span class="text-primary">[OPERATIONAL]</span></p>
+</div>
+<div class="flex gap-sm">
+<button class="px-md py-1 border border-primary text-primary hover:bg-primary hover:text-on-primary transition-colors text-label-md uppercase font-bold">
+                    + New_Job
+                </button>
+<button class="px-md py-1 border border-outline text-outline hover:border-on-surface hover:text-on-surface transition-colors text-label-md uppercase">
+                    Export_Log
+                </button>
+</div>
+</div>
+<!-- Terminal Job Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">
+<!-- Job Card 1: Running -->
+<div class="border border-outline-variant bg-surface-container p-md hover:border-primary transition-colors group">
+<div class="flex justify-between items-start mb-sm">
+<div class="text-[10px] text-outline font-mono-sm">ID: JOB_X9920</div>
+<div class="text-primary text-[10px] font-bold">[RUNNING] <span class="pulse-dot">●</span></div>
+</div>
+<h3 class="text-body-md font-bold text-on-surface mb-xs truncate uppercase">Clinical_Report_A7.pdf</h3>
+<div class="text-[11px] text-outline mb-md leading-tight">Summarizing 42 pages... Context window: 128k. Priority: High.</div>
+<div class="flex justify-between items-center">
+<div class="w-2/3 h-1 bg-surface-container-highest relative">
+<div class="absolute top-0 left-0 h-full bg-primary" style="width: 74%"></div>
+</div>
+<span class="text-[10px] font-mono-sm">74.2%</span>
+</div>
+</div>
+<!-- Job Card 2: Success -->
+<div class="border border-outline-variant bg-surface-container p-md hover:border-tertiary transition-colors group">
+<div class="flex justify-between items-start mb-sm">
+<div class="text-[10px] text-outline font-mono-sm">ID: JOB_F0012</div>
+<div class="text-tertiary text-[10px] font-bold">[SUCCESS]</div>
+</div>
+<h3 class="text-body-md font-bold text-on-surface mb-xs truncate uppercase">Patient_History_Archive_ZIP</h3>
+<div class="text-[11px] text-outline mb-md leading-tight">Synthesis complete. Output: JSON_STRUCTURED. Size: 2.1MB.</div>
+<div class="flex gap-sm">
+<button class="text-[10px] text-primary border border-primary/20 px-xs py-0.5 uppercase hover:bg-primary/10">Open_Result</button>
+<button class="text-[10px] text-outline border border-outline/20 px-xs py-0.5 uppercase hover:bg-outline/10">Archive</button>
+</div>
+</div>
+<!-- Job Card 3: Pending -->
+<div class="border border-outline-variant bg-surface-container p-md hover:border-outline transition-colors group opacity-70">
+<div class="flex justify-between items-start mb-sm">
+<div class="text-[10px] text-outline font-mono-sm">ID: JOB_Q8812</div>
+<div class="text-outline text-[10px] font-bold">[PENDING]</div>
+</div>
+<h3 class="text-body-md font-bold text-on-surface mb-xs truncate uppercase">Research_Paper_Meta_Analysis</h3>
+<div class="text-[11px] text-outline mb-md leading-tight">Awaiting GPU availability... Queue position: #3.</div>
+<div class="flex gap-sm">
+<button class="text-[10px] text-outline border border-outline/20 px-xs py-0.5 uppercase">Cancel_Queue</button>
+</div>
+</div>
+<!-- Job Card 4: Running -->
+<div class="border border-outline-variant bg-surface-container p-md hover:border-primary transition-colors group">
+<div class="flex justify-between items-start mb-sm">
+<div class="text-[10px] text-outline font-mono-sm">ID: JOB_K1102</div>
+<div class="text-primary text-[10px] font-bold">[RUNNING] <span class="pulse-dot">●</span></div>
+</div>
+<h3 class="text-body-md font-bold text-on-surface mb-xs truncate uppercase">Bio_Engineering_Audit_LOGS</h3>
+<div class="text-[11px] text-outline mb-md leading-tight">Deep scan of 12.5k lines. Clustering active.</div>
+<div class="flex justify-between items-center">
+<div class="w-2/3 h-1 bg-surface-container-highest relative">
+<div class="absolute top-0 left-0 h-full bg-primary" style="width: 12%"></div>
+</div>
+<span class="text-[10px] font-mono-sm">12.0%</span>
+</div>
+</div>
+<!-- Job Card 5: Error -->
+<div class="border border-error/50 bg-error-container/10 p-md hover:border-error transition-colors group">
+<div class="flex justify-between items-start mb-sm">
+<div class="text-[10px] text-error font-mono-sm">ID: JOB_ERR_01</div>
+<div class="text-error text-[10px] font-bold">[CRITICAL_ERR]</div>
+</div>
+<h3 class="text-body-md font-bold text-error mb-xs truncate uppercase">Incompatible_Schema_Ref</h3>
+<div class="text-[11px] text-error/70 mb-md leading-tight">Parsing failed at offset 0x482. Invalid EOF marker.</div>
+<div class="flex gap-sm">
+<button class="text-[10px] text-error border border-error/30 px-xs py-0.5 uppercase hover:bg-error/10">Retry_Debug</button>
+</div>
+</div>
+<!-- Job Card 6: Success -->
+<div class="border border-outline-variant bg-surface-container p-md hover:border-tertiary transition-colors group">
+<div class="flex justify-between items-start mb-sm">
+<div class="text-[10px] text-outline font-mono-sm">ID: JOB_T4421</div>
+<div class="text-tertiary text-[10px] font-bold">[SUCCESS]</div>
+</div>
+<h3 class="text-body-md font-bold text-on-surface mb-xs truncate uppercase">User_Flow_Interactions_CSV</h3>
+<div class="text-[11px] text-outline mb-md leading-tight">MOC generated. Nodes: 124, Edges: 450.</div>
+<div class="flex gap-sm">
+<button class="text-[10px] text-primary border border-primary/20 px-xs py-0.5 uppercase hover:bg-primary/10">Visualize</button>
+</div>
+</div>
+</div>
+<!-- System Log Output Section (Terminal Inspired) -->
+<section class="mt-xl border border-outline-variant bg-surface-container-lowest overflow-hidden">
+<div class="flex items-center justify-between bg-surface-container-highest px-md py-1 border-b border-outline-variant">
+<span class="text-[10px] font-bold text-on-surface tracking-widest uppercase">SYSLOG_MONITOR :: node-01-west</span>
+<div class="flex gap-2">
+<div class="w-2 h-2 bg-error"></div>
+<div class="w-2 h-2 bg-tertiary"></div>
+<div class="w-2 h-2 bg-primary"></div>
+</div>
+</div>
+<div class="p-md font-mono-sm text-[11px] leading-relaxed text-outline space-y-1 h-[200px] overflow-y-auto" id="log-output">
+<div>[14:02:11] INITIALIZING AGENT_SUBSYSTEM_04...</div>
+<div class="text-tertiary">[14:02:12] WARNING: LATENCY AT EDGE NODE 01 EXCEEDS 50ms</div>
+<div>[14:02:14] FETCHING SCHEMA_REGISTRY_V2.JSON...</div>
+<div class="text-primary">[14:02:18] SUCCESS: CACHE_HIT FOR RESOURCE_ID: clinical_meta_v9</div>
+<div>[14:03:01] PARSING STREAM_CHUNK_001 [████████░░░░░░] 58%</div>
+<div>[14:03:05] THREAD_02: ALLOCATING 512MB RAM TO ATOMIC_SYNTHESIS_TASK</div>
+<div>[14:03:10] AGENT: STARTING VECTOR_EMBEDDING_GEN...</div>
+<div class="text-on-surface">[14:03:12] INPUT: "Patient exhibited signs of..." -&gt; VECTOR_MAP_A04</div>
+<div>[14:03:15] HEARTBEAT_OK: CORE_01, CORE_02, CORE_03, CORE_04</div>
+</div>
+</section>
+</main>
+<!-- Right Settings Drawer (Context/Metadata) -->
+<aside class="fixed right-0 top-12 h-[calc(100vh-48px)] w-drawer_width bg-surface-container-high border-l border-outline-variant z-40">
+<div class="p-lg border-b border-outline-variant bg-surface-container-highest">
+<h2 class="text-label-lg font-bold text-on-surface uppercase tracking-widest">Global_Parameters</h2>
+</div>
+<div class="p-lg space-y-xl overflow-y-auto h-full">
+<!-- Model Selection -->
+<div>
+<label class="block text-label-md text-outline uppercase mb-sm">Model_Core</label>
+<div class="space-y-sm">
+<button class="w-full text-left px-md py-sm border border-primary bg-primary/10 text-primary text-body-sm flex justify-between items-center group">
+                        AGENT_NEURAL_64B
+                        <span class="material-symbols-outlined text-sm">check_circle</span>
+</button>
+<button class="w-full text-left px-md py-sm border border-outline-variant text-on-surface-variant text-body-sm hover:border-outline hover:text-on-surface transition-colors">
+                        SYNTH_ULTRA_LITE
+                    </button>
+<button class="w-full text-left px-md py-sm border border-outline-variant text-on-surface-variant text-body-sm hover:border-outline hover:text-on-surface transition-colors">
+                        GPT_CLI_BRIDGE_v4
+                    </button>
+</div>
+</div>
+<!-- Synthesis Settings -->
+<div>
+<label class="block text-label-md text-outline uppercase mb-sm">Synthesis_Flags</label>
+<div class="space-y-md">
+<div class="flex items-center justify-between">
+<span class="text-body-sm">Aggressive_Deduplication</span>
+<div class="w-8 h-4 bg-primary relative cursor-pointer">
+<div class="absolute right-1 top-1 w-2 h-2 bg-on-primary"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-body-sm">Strict_Metadata_Schema</span>
+<div class="w-8 h-4 bg-outline-variant relative cursor-pointer">
+<div class="absolute left-1 top-1 w-2 h-2 bg-on-surface-variant"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-body-sm">Deep_Recursive_Summarization</span>
+<div class="w-8 h-4 bg-primary relative cursor-pointer">
+<div class="absolute right-1 top-1 w-2 h-2 bg-on-primary"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Thresholds -->
+<div>
+<label class="block text-label-md text-outline uppercase mb-sm">Confidence_Threshold</label>
+<div class="flex items-center gap-md">
+<input class="flex-1 accent-primary bg-surface-container-highest appearance-none h-1" max="100" min="0" type="range" value="85"/>
+<span class="font-mono-sm text-body-sm text-primary">0.85</span>
+</div>
+</div>
+<!-- File Format -->
+<div>
+<label class="block text-label-md text-outline uppercase mb-sm">Export_Protocol</label>
+<select class="w-full bg-surface-container border border-outline-variant text-on-surface text-body-sm p-sm focus:outline-none focus:border-primary">
+<option>PROT_JSON_STRUCTURED</option>
+<option>PROT_MARKDOWN_DOC</option>
+<option>PROT_YAML_CONFIG</option>
+<option>PROT_RAW_TEXT</option>
+</select>
+</div>
+<div class="pt-xl">
+<button class="w-full py-md border border-error/50 text-error font-bold uppercase hover:bg-error hover:text-on-error transition-all text-label-md">
+                    Terminate_All_Processes
+                </button>
+</div>
+</div>
+</aside>
+<script>
+        // Micro-interaction: Log simulation
+        const logElement = document.getElementById('log-output');
+        const logs = [
+            "[14:04:01] AGENT_STATUS: IDLE... Awaiting instructions.",
+            "[14:04:15] POLLING ENDPOINT: /api/v2/stream/sync",
+            "[14:04:18] COMPILING SUMMARY FOR JOB_F0012...",
+            "[14:04:22] METRIC: TOKEN_THROUGHPUT = 450/sec",
+            "[14:05:00] CLEANING TEMPORARY_VOLUMES...",
+            "[14:05:10] INFO: RE-INDEXING VECTOR DATABASE"
+        ];
+        
+        setInterval(() => {
+            const newLog = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString('en-GB', { hour12: false });
+            const logContent = logs[Math.floor(Math.random() * logs.length)];
+            newLog.innerHTML = `<span class="opacity-50">[${timestamp}]</span> ${logContent.split(']')[1]}`;
+            logElement.appendChild(newLog);
+            logElement.scrollTop = logElement.scrollHeight;
+            if(logElement.children.length > 50) logElement.removeChild(logElement.children[0]);
+        }, 3000);
+
+        // Ambient Flicker
+        setInterval(() => {
+            document.body.style.opacity = Math.random() > 0.99 ? "0.98" : "1";
+        }, 100);
+    </script>
+</body></html>
