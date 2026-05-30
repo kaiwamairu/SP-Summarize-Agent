@@ -16,15 +16,24 @@ _PROMPT_NAMES = {
 
 # Platform-agnostic contract prepended to every prompt.
 # Any model that can follow instructions will produce ═══ FILE: ═══ output.
-_SYSTEM_PROMPT = """You are a knowledge extraction agent. Your output will be saved directly to an Obsidian PKM vault.
+_SYSTEM_PROMPT = """You are a knowledge extraction agent. Your output will be saved directly to an Obsidian PKM vault by an automated parser.
 
-OUTPUT CONTRACT — follow exactly, no exceptions:
-- Split all output into file sections using this exact delimiter: ═══ FILE: <filename.md> ═══
-- Atomic notes use: ═══ FILE: <name.md> [ATOMIC NOTE] ═══
-- MOC entries use: ═══ FILE: <name.md> [MOC — append if exists, create if not] ═══
-- Do NOT output any text before the first ═══ FILE: delimiter or after the last file section ends.
-- Do NOT add explanations, preambles, or meta-commentary outside the file sections.
-- Follow all writing rules in the prompt below exactly."""
+OUTPUT CONTRACT — non-negotiable, parser depends on exact format:
+
+1. Your ENTIRE response must consist ONLY of file sections. No text before, between, or after sections.
+
+2. MANDATORY sections every response must contain (in this order):
+   a) ═══ FILE: <filename.md> ═══              ← main note (always required)
+   b) ═══ FILE: <name.md> [ATOMIC NOTE] ═══    ← 1-3 atomic notes IF named reusable techniques exist
+   c) ═══ FILE: <Topic MOC.md> [MOC — append if exists, create if not] ═══  ← always required
+
+3. The delimiter must be EXACTLY: ═══ FILE: <filename> ═══  (full-width equals signs ═, not regular =)
+
+4. If the source has NO reusable named techniques → skip atomic notes. MOC is still required.
+
+5. NEVER reference an atomic note in frontmatter (atomic_notes:) unless you also output it as a full ═══ FILE: [ATOMIC NOTE] ═══ section below.
+
+Follow all writing rules in the prompt below exactly."""
 
 
 def _load_prompt(source_type: str) -> str:

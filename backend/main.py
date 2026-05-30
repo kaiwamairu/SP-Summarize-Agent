@@ -114,6 +114,19 @@ async def get_job(job_id: str):
     return job
 
 
+@app.post("/api/jobs/{job_id}/retry")
+async def retry_job(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"error": "Job not found"})
+    if job["status"] not in ("failed", "done"):
+        return JSONResponse(status_code=400, content={"error": "Only failed or done jobs can be retried"})
+    job.update(status="queued", progress=0, files=[], error=None)
+    asyncio.create_task(_run_job(job_id))
+    await broadcast_log(f"{job_id} :: RETRYING...")
+    return {"job_id": job_id, "status": "queued"}
+
+
 # ── WebSocket log broadcast ───────────────────────────────────────────────────
 
 @app.websocket("/ws/logs")

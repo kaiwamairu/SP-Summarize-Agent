@@ -1,14 +1,30 @@
-import httpx
+from gitingest import ingest_async
+
+# Keep total under ~100k chars to stay within AI context limits
+_MAX_CHARS = 100_000
+# Skip binary-heavy and lock files to save tokens
+_EXCLUDE = {
+    "*.lock", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg",
+    "*.ico", "*.woff", "*.woff2", "*.ttf", "*.eot",
+    "package-lock.json", "yarn.lock", "poetry.lock",
+    "*.min.js", "*.min.css", "dist/", "build/", ".git/",
+    "node_modules/", "__pycache__/",
+}
 
 
 async def fetch_repo(url: str) -> str:
-    """Convert GitHub repo to text via gitingest.com API."""
-    ingest_url = url.replace("github.com", "gitingest.com")
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.get(ingest_url, follow_redirects=True)
-        r.raise_for_status()
-    # gitingest returns a text page — strip HTML tags
-    import re
-    text = re.sub(r"<[^>]+>", " ", r.text)
-    text = re.sub(r"\s{2,}", "\n", text)
-    return text.strip()
+    """Fetch GitHub repo content using gitingest. Returns summary + tree + code."""
+    summary, tree, content = await ingest_async(
+        source=url,
+        max_file_size=50_000,       # skip files > 50 KB
+        exclude_patterns=_EXCLUDE,
+    )
+
+    # Combine into structured text for the AI
+    result = f"## Repository Summary\n\n{summary}\n\n## File Tree\n\n{tree}\n\n## File Contents\n\n{content}"
+
+    # Truncate if over limit
+    if len(result) > _MAX_CHARS:
+        result = result[:_MAX_CHARS] + "\n\n[TRUNCATED — repository content exceeds context limit]"
+
+    return result
