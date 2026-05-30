@@ -170,7 +170,7 @@
     <!-- Model -->
     <div>
       <label class="block text-[10px] text-outline uppercase mb-sm tracking-wider">Model_Core</label>
-      <select id="model-select" class="w-full bg-surface-container border border-outline-variant text-on-surface text-[12px] p-sm focus:outline-none focus:border-primary">
+      <select id="model-select" onchange="document.getElementById('job-model').value=this.value" class="w-full bg-surface-container border border-outline-variant text-on-surface text-[12px] p-sm focus:outline-none focus:border-primary">
         <option value="anthropic/claude-sonnet-4-5">anthropic/claude-sonnet-4-5</option>
         <option value="anthropic/claude-opus-4">anthropic/claude-opus-4</option>
         <option value="google/gemini-2.0-flash-001">google/gemini-2.0-flash-001</option>
@@ -422,6 +422,12 @@ async function retryJob(jobId) {
 // ── New Job Modal ──────────────────────────────────────────────────
 
 function openNewJob() {
+  // Pre-fill modal from global settings drawer selection
+  const platform = getGlobalPlatform();
+  const model = getGlobalModel();
+  document.getElementById('job-platform').value = platform;
+  updateJobModels();
+  document.getElementById('job-model').value = model;
   document.getElementById('job-modal').classList.add('open');
   document.getElementById('url-input').focus();
 }
@@ -493,9 +499,25 @@ function selectPlatform(platform) {
     btn.innerHTML = btn.innerHTML.replace(/<span.*<\/span>/, '');
     if (active) btn.innerHTML += '<span class="material-symbols-outlined text-sm">check_circle</span>';
   });
-  // Sync modal platform selector
+  // Sync BOTH the modal platform selector AND the drawer model selector
   document.getElementById('job-platform').value = platform;
   updateJobModels();
+  syncDrawerModel(platform);
+}
+
+function syncDrawerModel(platform) {
+  const sel = document.getElementById('model-select');
+  const models = MODELS[platform] || [];
+  sel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+function getGlobalPlatform() {
+  const active = document.querySelector('.platform-btn.border-primary');
+  return active ? active.dataset.platform : 'openrouter';
+}
+
+function getGlobalModel() {
+  return document.getElementById('model-select').value;
 }
 
 function openSettings() {
