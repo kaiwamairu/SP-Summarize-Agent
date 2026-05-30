@@ -105,7 +105,7 @@
   <div class="flex justify-between items-end mb-xl border-b border-outline-variant pb-md">
     <div>
       <h1 class="text-base font-bold text-on-surface uppercase tracking-tight">System_Control_Panel</h1>
-      <p class="text-[11px] text-outline mt-xs">Active Tasks: <span id="active-count">0</span> | Node Status: <span class="text-primary">[OPERATIONAL]</span></p>
+      <p class="text-[11px] text-outline mt-xs">Active Tasks: <span id="active-count">0</span> | Total: <span id="total-count">0</span> | Node Status: <span class="text-primary">[OPERATIONAL]</span></p>
     </div>
     <div class="flex gap-sm">
       <button onclick="openNewJob()" class="px-md py-1 border border-primary text-primary hover:bg-primary hover:text-on-primary transition-colors text-[11px] uppercase font-bold">
@@ -297,7 +297,15 @@ function connectWS() {
     setWsStatus(true);
     appendLog('[SYSTEM] WebSocket connected to backend.');
   };
-  ws.onmessage = (e) => appendLog(e.data);
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'log') appendLog(msg.message);
+      else if (msg.type === 'job_update') handleJobUpdate(msg.job);
+    } catch (_) {
+      appendLog(e.data); // plain-text fallback
+    }
+  };
   ws.onclose = () => {
     setWsStatus(false);
     appendLog('[SYSTEM] WebSocket disconnected. Retrying in 5s...');
@@ -319,8 +327,10 @@ function appendLog(msg) {
   const line = document.createElement('div');
   // Colour-code by keyword
   if (msg.includes('SUCCESS') || msg.includes('SAVED')) line.className = 'text-tertiary';
-  else if (msg.includes('ERR') || msg.includes('CRITICAL')) line.className = 'text-error';
-  else if (msg.includes('RUNNING') || msg.includes('SUMMARIZING') || msg.includes('FETCHING')) line.className = 'text-primary';
+  else if (msg.includes('ERR') || msg.includes('CRITICAL') || msg.includes('FAILED')) line.className = 'text-error';
+  else if (msg.includes('FETCHING') || msg.includes('FETCHED') || msg.includes('CALLING AI') ||
+           msg.includes('SUMMARIZING') || msg.includes('PARSING') || msg.includes('WRITING') ||
+           msg.includes('RETRYING') || msg.includes('RUNNING')) line.className = 'text-primary';
   line.textContent = msg;
   el.appendChild(line);
   el.scrollTop = el.scrollHeight;
@@ -329,46 +339,66 @@ function appendLog(msg) {
 
 // ── Job management ─────────────────────────────────────────────────
 
+// Client-side job cache — updated via WS push and poll fallback
+const jobsMap = {};
 let jobPollInterval = null;
 
+const _ACTIVE_STATUSES = ['queued','fetching','summarizing','parsing','writing'];
+
+function handleJobUpdate(job) {
+  jobsMap[job.job_id] = job;
+
+  const grid = document.getElementById('job-grid');
+  const empty = document.getElementById('empty-state');
+  const existing = grid.querySelector(`[data-job-id="${job.job_id}"]`);
+  if (existing) {
+    updateCard(job);
+  } else {
+    empty.style.display = 'none';
+    grid.insertBefore(createCard(job), empty);
+  }
+
+  const active = Object.values(jobsMap).filter(j => _ACTIVE_STATUSES.includes(j.status)).length;
+  document.getElementById('active-count').textContent = active;
+  document.getElementById('total-count').textContent = Object.keys(jobsMap).length;
+}
+
 async function loadJobs() {
+  // 30 s fallback poll — WS push is the primary update path
   try {
     const r = await fetch(`${API}/api/jobs`);
     const { jobs } = await r.json();
-    renderJobs(jobs);
-    const active = jobs.filter(j => ['queued','fetching','summarizing','writing'].includes(j.status)).length;
-    document.getElementById('active-count').textContent = active;
+    if (!jobs.length) document.getElementById('empty-state').style.display = '';
+    jobs.forEach(handleJobUpdate);
   } catch (_) {}
 }
 
-function renderJobs(jobs) {
-  const grid = document.getElementById('job-grid');
-  const empty = document.getElementById('empty-state');
-  if (!jobs.length) { empty.style.display = ''; return; }
-  empty.style.display = 'none';
-
-  // Sync cards — update existing, add new
-  const existing = new Set([...grid.querySelectorAll('[data-job-id]')].map(e => e.dataset.jobId));
-  jobs.forEach(job => {
-    if (existing.has(job.job_id)) {
-      updateCard(job);
-    } else {
-      grid.insertBefore(createCard(job), empty);
-    }
-  });
+function statusBorderClass(status) {
+  return {
+    queued:      'border-outline-variant',
+    fetching:    'border-primary',
+    summarizing: 'border-primary',
+    parsing:     'border-primary',
+    writing:     'border-primary',
+    done:        'border-tertiary',
+    failed:      'border-error',
+  }[status] || 'border-outline-variant';
 }
 
 function createCard(job) {
   const card = document.createElement('div');
   card.dataset.jobId = job.job_id;
-  card.className = 'border border-outline-variant bg-surface-container p-md transition-colors';
+  card.className = `border ${statusBorderClass(job.status)} bg-surface-container p-md transition-colors duration-500`;
   card.innerHTML = cardInnerHTML(job);
   return card;
 }
 
 function updateCard(job) {
   const card = document.querySelector(`[data-job-id="${job.job_id}"]`);
-  if (card) card.innerHTML = cardInnerHTML(job);
+  if (!card) return;
+  // Replace entire className to animate border colour with status transitions
+  card.className = `border ${statusBorderClass(job.status)} bg-surface-container p-md transition-colors duration-500`;
+  card.innerHTML = cardInnerHTML(job);
 }
 
 function cardInnerHTML(job) {
@@ -376,12 +406,12 @@ function cardInnerHTML(job) {
   const shortUrl = job.url.length > 45 ? job.url.slice(0, 45) + '...' : job.url;
   const statusClass = {
     queued: 'text-outline', fetching: 'text-primary', summarizing: 'text-primary',
-    writing: 'text-primary', done: 'text-tertiary', failed: 'text-error',
+    parsing: 'text-primary', writing: 'text-primary', done: 'text-tertiary', failed: 'text-error',
   }[job.status] || 'text-outline';
-  const pulse = ['fetching','summarizing','writing'].includes(job.status) ? '<span class="pulse-dot">●</span>' : '';
+  const pulse = ['fetching','summarizing','parsing','writing'].includes(job.status) ? '<span class="pulse-dot">●</span>' : '';
 
   let progressBar = '';
-  if (['fetching','summarizing','writing'].includes(job.status)) {
+  if (['fetching','summarizing','parsing','writing'].includes(job.status)) {
     progressBar = `<div class="flex justify-between items-center mt-sm">
       <div class="w-2/3 h-1 bg-surface-container-highest relative">
         <div class="absolute top-0 left-0 h-full bg-primary transition-all" style="width:${job.progress}%"></div>
@@ -482,6 +512,8 @@ async function submitJobs() {
       body: JSON.stringify({ urls, platform, model }),
     });
     const data = await r.json();
+    // Immediately render new cards — WS will push subsequent status transitions
+    data.jobs.forEach(handleJobUpdate);
     closeNewJob();
     appendLog(`[DISPATCH] ${data.jobs.length} JOB(S) QUEUED`);
   } catch (e) {
@@ -552,7 +584,7 @@ setInterval(() => {
 connectWS();
 loadSettings();
 loadJobs();
-jobPollInterval = setInterval(loadJobs, 3000);
+jobPollInterval = setInterval(loadJobs, 30000); // 30 s fallback — WS push is primary
 </script>
 </body>
 </html>

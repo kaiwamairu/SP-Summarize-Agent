@@ -1,4 +1,5 @@
-from gitingest import ingest_async
+import asyncio
+from gitingest import ingest  # synchronous — wrapped in to_thread to stay non-blocking
 
 # Keep total under ~100k chars to stay within AI context limits
 _MAX_CHARS = 100_000
@@ -13,8 +14,13 @@ _EXCLUDE = {
 
 
 async def fetch_repo(url: str) -> str:
-    """Fetch GitHub repo content using gitingest. Returns summary + tree + code."""
-    summary, tree, content = await ingest_async(
+    """Fetch GitHub repo content using gitingest. Returns summary + tree + code.
+
+    Uses asyncio.to_thread so the synchronous git I/O doesn't block the event loop,
+    and avoids the Windows ProactorEventLoop restriction on ingest_async's subprocess calls.
+    """
+    summary, tree, content = await asyncio.to_thread(
+        ingest,
         source=url,
         max_file_size=50_000,       # skip files > 50 KB
         exclude_patterns=_EXCLUDE,

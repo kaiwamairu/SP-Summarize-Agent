@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,10 @@ from pydantic import BaseModel
 
 from .config import settings
 from .resolver import resolve_url
-from .summarizer import summarize
+from .summarizer import fetch_content, call_ai_raw
+from .parser import parse_output
+from .writer import write_files
+from .logger import session_log
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
@@ -25,11 +29,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory job store for M0 — replaced with persistent store in M2
+# In-memory job store
 jobs: dict[str, dict[str, Any]] = {}
 
-# Active WebSocket connections for log broadcast
+# Active WebSocket connections
 log_connections: list[WebSocket] = []
+
+# M4: max 3 concurrent AI calls
+_ai_semaphore = asyncio.Semaphore(3)
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -40,20 +47,11 @@ class JobRequest(BaseModel):
     model: str | None = None  # None → use platform default
 
 
-class JobResponse(BaseModel):
-    job_id: str
-    url: str
-    source_type: str
-    status: str
-    created_at: str
-
-
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 async def serve_frontend():
-    index = FRONTEND_DIR / "index.html"
-    return FileResponse(index)
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 
 @app.get("/api/settings")
@@ -123,65 +121,131 @@ async def retry_job(job_id: str):
         return JSONResponse(status_code=400, content={"error": "Only failed or done jobs can be retried"})
     job.update(status="queued", progress=0, files=[], error=None)
     asyncio.create_task(_run_job(job_id))
-    await broadcast_log(f"{job_id} :: RETRYING...")
+    await _emit_log(f"{job_id} :: RETRYING...")
     return {"job_id": job_id, "status": "queued"}
 
 
-# ── WebSocket log broadcast ───────────────────────────────────────────────────
+# ── WebSocket ─────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws/logs")
 async def ws_logs(websocket: WebSocket):
     await websocket.accept()
     log_connections.append(websocket)
+    # Push current state snapshot on connect so late-joining clients sync up
+    for job in jobs.values():
+        try:
+            await websocket.send_text(json.dumps({"type": "job_update", "job": job}))
+        except Exception:
+            pass
     try:
         while True:
-            await websocket.receive_text()  # keep-alive ping
+            await websocket.receive_text()  # keep-alive pings from client
     except WebSocketDisconnect:
-        log_connections.remove(websocket)
+        if websocket in log_connections:
+            log_connections.remove(websocket)
 
 
-async def broadcast_log(message: str):
-    ts = datetime.utcnow().strftime("%H:%M:%S")
-    payload = f"[{ts}] {message}"
-    dead = []
+async def _broadcast(payload: dict):
+    """Send a typed JSON message to all connected clients."""
+    text = json.dumps(payload)
+    dead: list[WebSocket] = []
     for ws in log_connections:
         try:
-            await ws.send_text(payload)
+            await ws.send_text(text)
         except Exception:
             dead.append(ws)
     for ws in dead:
-        log_connections.remove(ws)
+        if ws in log_connections:
+            log_connections.remove(ws)
+
+
+async def _emit_log(message: str):
+    """Broadcast a timestamped log line."""
+    ts = datetime.utcnow().strftime("%H:%M:%S")
+    await _broadcast({"type": "log", "message": f"[{ts}] {message}"})
+
+
+async def _emit_job(job_id: str):
+    """Broadcast the full current state of one job."""
+    await _broadcast({"type": "job_update", "job": jobs[job_id]})
+
+
+async def _update_and_emit(job_id: str, **kwargs):
+    """Patch job fields and immediately push the update via WS."""
+    jobs[job_id].update(kwargs)
+    await _emit_job(job_id)
 
 
 # ── Job runner ────────────────────────────────────────────────────────────────
+#
+# Progress map:
+#   0   queued
+#  10   fetching — ingestion started
+#  30   fetching — content retrieved
+#  45   summarizing — AI call dispatched
+#  75   parsing — AI responded, splitting output
+#  85   writing — vault I/O
+# 100   done
 
 async def _run_job(job_id: str):
     job = jobs[job_id]
+    t_start = datetime.utcnow()
+
     try:
-        await _update_job(job_id, status="fetching", progress=10)
-        await broadcast_log(f"{job_id} :: FETCHING {job['source_type'].upper()} → {job['url'][:60]}")
+        # ── 1. Fetch content ──────────────────────────────────────────────────
+        await _update_and_emit(job_id, status="fetching", progress=10)
+        await _emit_log(
+            f"{job_id} :: FETCHING {job['source_type'].upper()} → {job['url'][:60]}"
+        )
 
-        await _update_job(job_id, status="summarizing", progress=40)
-        await broadcast_log(f"{job_id} :: SUMMARIZING via {job['platform'].upper()}:{job['model']}")
+        content = await fetch_content(job)
 
-        files = await summarize(job)
+        await _update_and_emit(job_id, status="fetching", progress=30)
+        await _emit_log(f"{job_id} :: FETCHED {len(content):,} chars")
 
-        await _update_job(job_id, status="writing", progress=80, files=files)
-        await broadcast_log(f"{job_id} :: WRITING {len(files)} FILE(S) TO VAULT")
+        # ── 2. AI call — semaphore limits to 3 concurrent ────────────────────
+        async with _ai_semaphore:
+            await _update_and_emit(job_id, status="summarizing", progress=45)
+            await _emit_log(
+                f"{job_id} :: CALLING AI → {job['platform'].upper()} / {job['model']}"
+            )
 
-        await _update_job(job_id, status="done", progress=100, files=files)
-        await broadcast_log(f"{job_id} :: [SUCCESS] {len(files)} FILE(S) SAVED")
+            raw = await call_ai_raw(
+                job["platform"], job["model"], job["source_type"], content
+            )
+
+        # ── 3. Parse AI output ────────────────────────────────────────────────
+        await _update_and_emit(job_id, status="parsing", progress=75)
+        await _emit_log(f"{job_id} :: AI DONE — PARSING OUTPUT")
+
+        parsed = parse_output(raw)
+
+        # ── 4. Write to vault ─────────────────────────────────────────────────
+        await _update_and_emit(job_id, status="writing", progress=85)
+        await _emit_log(f"{job_id} :: WRITING {len(parsed)} FILE(S) TO VAULT")
+
+        saved = write_files(parsed, job)
+
+        # ── 5. Done ───────────────────────────────────────────────────────────
+        await _update_and_emit(job_id, status="done", progress=100, files=saved)
+        await _emit_log(f"{job_id} :: [SUCCESS] {len(saved)} FILE(S) SAVED")
+
+        elapsed = int((datetime.utcnow() - t_start).total_seconds())
+        await session_log(job, saved, elapsed_sec=elapsed)
 
     except Exception as exc:
-        await _update_job(job_id, status="failed", error=str(exc))
-        await broadcast_log(f"{job_id} :: [CRITICAL_ERR] {exc}")
+        error_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        await _update_and_emit(job_id, status="failed", error=error_msg)
+        await _emit_log(f"{job_id} :: [CRITICAL_ERR] {error_msg}")
+        await session_log(job, [], error=error_msg)
+    except BaseException as exc:
+        # Catch CancelledError and other non-Exception base exceptions
+        error_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        jobs[job_id].update(status="failed", error=error_msg)
+        raise  # re-raise so asyncio task machinery handles it properly
 
 
-async def _update_job(job_id: str, **kwargs):
-    jobs[job_id].update(kwargs)
-
-
-# ── Static files (assets if needed later) ────────────────────────────────────
+# ── Static files ──────────────────────────────────────────────────────────────
 
 if (FRONTEND_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")

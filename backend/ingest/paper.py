@@ -19,8 +19,12 @@ async def fetch_paper(url: str) -> str:
 
 
 def _to_html_url(url: str) -> str:
-    # https://arxiv.org/abs/2404.01234 → https://arxiv.org/html/2404.01234
-    return re.sub(r"(arxiv\.org)/abs/", r"\1/html/", url)
+    """Convert any arxiv URL form to the HTML viewer URL."""
+    # /abs/2404.01234  → /html/2404.01234
+    url = re.sub(r"(arxiv\.org)/abs/", r"\1/html/", url)
+    # /pdf/2404.01234v1.pdf or /pdf/2404.01234 → /html/2404.01234
+    url = re.sub(r"(arxiv\.org)/pdf/(\d+\.\d+)(?:v\d+)?(?:\.pdf)?", r"\1/html/\2", url)
+    return url
 
 
 def _extract_arxiv_html(html: str) -> str:

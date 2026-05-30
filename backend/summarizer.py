@@ -51,22 +51,24 @@ def _build_messages(source_type: str, content: str) -> list[dict]:
     ]
 
 
-async def summarize(job: dict[str, Any]) -> list[dict]:
-    """Fetch → AI → parse → write. Returns list of saved file records."""
-    source_type = job["source_type"]
-    url = job["url"]
-    platform = job["platform"]
-    model = job["model"]
+async def fetch_content(job: dict[str, Any]) -> str:
+    """Step 1 — Ingest raw content from the source URL."""
+    fetch_fn = {"paper": fetch_paper, "video": fetch_video, "repo": fetch_repo}[job["source_type"]]
+    return await fetch_fn(job["url"])
 
-    fetch_fn = {"paper": fetch_paper, "video": fetch_video, "repo": fetch_repo}[source_type]
-    content = await fetch_fn(url)
 
+async def call_ai_raw(platform: str, model: str, source_type: str, content: str) -> str:
+    """Step 2 — Build messages and call the AI platform. Returns raw model output."""
     messages = _build_messages(source_type, content)
-    raw = await _call_ai(platform, model, messages)
+    return await _call_ai(platform, model, messages)
 
+
+async def summarize(job: dict[str, Any]) -> list[dict]:
+    """Fetch → AI → parse → write (all-in-one). Returns list of saved file records."""
+    content = await fetch_content(job)
+    raw = await call_ai_raw(job["platform"], job["model"], job["source_type"], content)
     parsed = parse_output(raw)
-    saved = write_files(parsed, job)
-    return saved
+    return write_files(parsed, job)
 
 
 async def _call_ai(platform: str, model: str, messages: list[dict]) -> str:
