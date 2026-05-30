@@ -83,6 +83,13 @@
       <span class="material-symbols-outlined">account_tree</span>
       <span class="text-[11px] uppercase tracking-wider">Vault</span>
     </a>
+    <a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:text-tertiary hover:bg-surface-container-highest transition-all group" href="/graph.html" target="_blank">
+      <span class="material-symbols-outlined group-hover:text-tertiary transition-colors">hub</span>
+      <div class="flex-1 flex items-center justify-between">
+        <span class="text-[11px] uppercase tracking-wider">Knowledge_Graph</span>
+        <span class="text-[9px] border border-outline-variant px-1 py-0 text-outline group-hover:border-tertiary group-hover:text-tertiary transition-colors" id="graph-node-count">—</span>
+      </div>
+    </a>
     <a class="flex items-center gap-md px-lg py-sm text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
       <span class="material-symbols-outlined">archive</span>
       <span class="text-[11px] uppercase tracking-wider">Archive</span>
@@ -266,8 +273,9 @@
 </div>
 
 <script>
-const API = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/logs';
+const _origin = window.location.origin;  // respects whatever port backend runs on
+const API = _origin;
+const WS_URL = _origin.replace(/^http/, 'ws') + '/ws/logs';
 
 const MODELS = {
   openrouter: [
@@ -585,6 +593,17 @@ connectWS();
 loadSettings();
 loadJobs();
 jobPollInterval = setInterval(loadJobs, 30000); // 30 s fallback — WS push is primary
+
+// Fetch graph stats once to show node count badge in sidebar
+(async function loadGraphStats() {
+  try {
+    const r = await fetch(`${API}/api/graph`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('graph-node-count');
+    if (el && d.stats) el.textContent = `${d.stats.node_count}n · ${d.stats.edge_count}e`;
+  } catch (_) {}
+})();
 </script>
 </body>
 </html>

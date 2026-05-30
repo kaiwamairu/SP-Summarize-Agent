@@ -90,10 +90,11 @@ license: <SPDX identifier เช่น MIT, Apache-2.0>
 last_commit: <YYYY-MM-DD ถ้ารู้>
 tags:
   - repo
-  - language/<หลัก>
-  - framework/<หลัก>
-  - domain/<...>
-  - pattern/<หลัก ถ้ามี>
+  - language/<primary: python, typescript, go, rust, java>
+  - framework/<main framework: pytorch, langchain, electron, fastapi, react>
+  - domain/<application domain: ai-agents, llm-orchestration, gui-agents, nlp, ml, systems>
+  - topic/<specific subject: fine-tuning, rag, multi-agent, transformer, inference>
+  - pattern/<key design pattern if present: agent-loop, rag, checkpoint-persistence, event-driven>
 source_url: <github url>
 date_summarized: <YYYY-MM-DD>
 moc: "[[<MOC name>]]"

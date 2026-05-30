@@ -17,6 +17,8 @@ from .summarizer import fetch_content, call_ai_raw
 from .parser import parse_output
 from .writer import write_files
 from .logger import session_log
+from .graph import build_graph
+from .retagger import retag_vault
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
@@ -52,6 +54,11 @@ class JobRequest(BaseModel):
 @app.get("/")
 async def serve_frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/graph.html")
+async def serve_graph():
+    return FileResponse(FRONTEND_DIR / "graph.html")
 
 
 @app.get("/api/settings")
@@ -110,6 +117,69 @@ async def get_job(job_id: str):
     if not job:
         return JSONResponse(status_code=404, content={"error": "Job not found"})
     return job
+
+
+@app.get("/api/vault/note")
+async def get_vault_note(note_file: str):
+    """Return full markdown content of a vault note + Obsidian deep-link URL.
+
+    Query param: note_file = path relative to vault root, e.g. '20-Papers/2023-gpt4.md'
+    """
+    try:
+        path = (settings.vault_path / note_file).resolve()
+        vault_resolved = settings.vault_path.resolve()
+        if not str(path).startswith(str(vault_resolved)):
+            return JSONResponse(status_code=403, content={"error": "Access denied"})
+        if not path.exists() or path.suffix != ".md":
+            return JSONResponse(status_code=404, content={"error": "Note not found"})
+        content = path.read_text(encoding="utf-8", errors="replace")
+        vault_name = settings.vault_path.name
+        obs_path = note_file.replace("\\", "/")
+        if obs_path.endswith(".md"):
+            obs_path = obs_path[:-3]
+        obsidian_url = f"obsidian://open?vault={vault_name}&file={obs_path}"
+        return {"file": note_file, "content": content, "obsidian_url": obsidian_url}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/api/graph")
+async def get_graph():
+    """Return vault knowledge graph (nodes + tag-based edges)."""
+    try:
+        data = await asyncio.to_thread(build_graph)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+class RetagRequest(BaseModel):
+    dry_run: bool = False   # True → return plan without writing files
+    platform: str = settings.default_platform
+    model: str | None = None
+
+
+@app.post("/api/vault/retag")
+async def vault_retag(req: RetagRequest):
+    """
+    Scan existing vault .md files and enrich their semantic tags using AI.
+    Posts progress via WebSocket log messages.
+    """
+    model = req.model or settings.platforms[req.platform]["model"]
+    asyncio.create_task(
+        _run_retag(req.platform, model, dry_run=req.dry_run)
+    )
+    return {"status": "started", "platform": req.platform, "model": model, "dry_run": req.dry_run}
+
+
+async def _run_retag(platform: str, model: str, *, dry_run: bool):
+    await _emit_log(f"RETAG :: Starting vault retag (platform={platform} model={model} dry_run={dry_run})")
+    try:
+        results = await retag_vault(platform, model, dry_run=dry_run, emit_log=_emit_log)
+        await _emit_log(f"RETAG :: Done — {results['updated']} updated, {results['skipped']} skipped, {results['errors']} errors")
+        await _broadcast({"type": "retag_done", "results": results})
+    except Exception as exc:
+        await _emit_log(f"RETAG :: [ERROR] {type(exc).__name__}: {exc}")
 
 
 @app.post("/api/jobs/{job_id}/retry")

@@ -6,6 +6,12 @@
       "runtimeExecutable": "C:\\Users\\ryu25\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
       "runtimeArgs": ["-m", "http.server", "5173", "--directory", "frontend"],
       "port": 5173
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3", "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8002"],
+      "port": 8002
     }
   ]
 }

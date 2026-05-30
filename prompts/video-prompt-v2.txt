@@ -90,8 +90,10 @@ duration: <hh:mm>
 published: <YYYY-MM-DD ถ้ารู้>
 tags:
   - video
-  - topic/<หลัก>
-  - topic/<รอง>
+  - topic/<specific subject e.g.: transformer, llm, fine-tuning, agents, rlhf, quantization>
+  - topic/<second topic if clearly different — omit if redundant>
+  - domain/<field: nlp, cv, systems, ai, ml>
+  - concept/<key reusable concept discussed e.g.: chain-of-thought, kv-cache, lora>
   - format/<tutorial | talk | interview | podcast | demo | vlog>
 source_url: <url>
 date_summarized: <YYYY-MM-DD>

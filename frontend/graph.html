@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Knowledge Graph — Summarize Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+  body { background:#050505; color:#bac3ff; font-family:'JetBrains Mono',monospace; overflow:hidden; }
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background:#0d0e13; }
+  ::-webkit-scrollbar-thumb { background:#333; border-radius:0; }
+  * { border-radius:0 !important; }
+  .scanline { width:100%; height:2px; background:rgba(186,195,255,0.015); position:fixed;
+              top:0; left:0; pointer-events:none; z-index:200; animation:scanline 8s linear infinite; }
+  @keyframes scanline { 0%{top:0} 100%{top:100%} }
+  #graph-svg { cursor:grab; display:block; }
+  #graph-svg:active { cursor:grabbing; }
+  .node-label { pointer-events:none; font-family:'JetBrains Mono',monospace; }
+  .tag-chip { display:inline-block; cursor:pointer; padding:1px 6px; font-size:9px;
+              border:1px solid; transition:opacity .15s; }
+  .tag-chip.inactive { opacity:0.2; }
+  /* Markdown renderer styles */
+  #reader-body h1,#reader-body h2,#reader-body h3 { color:#e3e1e9; font-weight:700; margin:1.2em 0 .4em; letter-spacing:.03em; }
+  #reader-body h1 { font-size:13px; border-bottom:1px solid #333; padding-bottom:.3em; }
+  #reader-body h2 { font-size:12px; }
+  #reader-body h3 { font-size:11px; color:#bac3ff; }
+  #reader-body p  { font-size:11px; line-height:1.7; color:#c6c5d3; margin:.5em 0; }
+  #reader-body ul,#reader-body ol { font-size:11px; color:#c6c5d3; padding-left:1.2em; margin:.4em 0; }
+  #reader-body li { margin:.2em 0; line-height:1.6; }
+  #reader-body code { font-family:'JetBrains Mono',monospace; font-size:10px;
+                       background:#161616; color:#bac3ff; padding:1px 4px; border:1px solid #333; }
+  #reader-body pre  { background:#0d0e13; border:1px solid #333; padding:10px 12px;
+                       overflow-x:auto; margin:.6em 0; }
+  #reader-body pre code { background:none; border:none; padding:0; font-size:10px; }
+  #reader-body blockquote { border-left:2px solid #454651; margin:.5em 0; padding:.3em .8em;
+                              color:#888; font-size:10px; }
+  #reader-body table { font-size:10px; border-collapse:collapse; width:100%; margin:.6em 0; }
+  #reader-body th,#reader-body td { border:1px solid #333; padding:3px 8px; text-align:left; }
+  #reader-body th { background:#161616; color:#bac3ff; }
+  #reader-body hr { border:none; border-top:1px solid #333; margin:1em 0; }
+  #reader-body a { color:#bac3ff; text-decoration:underline; text-underline-offset:2px; }
+  /* Obsidian callout → styled blockquote */
+  #reader-body .callout { border-left:2px solid #bac3ff; background:#0d0e13;
+                           padding:.4em .8em; margin:.5em 0; font-size:10px; }
+  /* YAML frontmatter block */
+  .fm-block { background:#0d0e13; border:1px solid #333; padding:8px 12px; margin-bottom:12px;
+               font-size:9px; color:#666; font-family:'JetBrains Mono',monospace; }
+  .fm-block .fm-tag { color:#bac3ff; } .fm-block .fm-val { color:#f6bd58; }
+  #loading { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+             justify-content:center; background:#050505; z-index:300; gap:12px; }
+  #loading .spin { width:32px; height:32px; border:2px solid #333;
+                   border-top-color:#bac3ff; animation:spin .6s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+<script>
+tailwind.config = {
+  darkMode:"class",
+  theme:{ extend:{ colors:{
+    "surface":"#050505","primary":"#bac3ff",
+    "surface-container-low":"#0d0e13","surface-container-highest":"#242424",
+    "surface-container-high":"#161616","surface-container":"#0f0f0f",
+    "on-surface-variant":"#c6c5d3","on-surface":"#e3e1e9",
+    "outline-variant":"#333333","outline":"#454651",
+    "primary-container":"#5c6bc0","on-primary":"#15267b",
+    "tertiary":"#f6bd58","error":"#ffb4ab",
+  }}}
+}
+</script>
+</head>
+<body class="dark">
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="spin"></div>
+  <div class="text-[11px] text-outline uppercase tracking-widest">Scanning vault…</div>
+</div>
+
+<div class="scanline"></div>
+
+<!-- ── Header ── -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-12
+               bg-surface border-b border-outline-variant">
+  <div class="flex items-center gap-3">
+    <span class="text-sm font-bold text-primary tracking-tighter">SUMMARIZE_AGENT_v2.0</span>
+    <span class="text-[10px] text-outline font-mono opacity-50">// KNOWLEDGE_GRAPH</span>
+  </div>
+  <div class="flex items-center gap-4">
+    <span class="text-[10px] text-outline" id="badge">—</span>
+    <button onclick="reloadGraph()" title="Reload from vault"
+      class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">↻ Reload</button>
+    <a href="/" class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">
+      ← Dashboard
+    </a>
+  </div>
+</header>
+
+<!-- ── Left Sidebar ── -->
+<aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-[224px] flex flex-col
+              bg-surface-container-low border-r border-outline-variant z-40 overflow-y-auto">
+
+  <!-- Stats -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Vault_Stats</div>
+    <div id="stat-list" class="space-y-2"></div>
+  </div>
+
+  <!-- Node type filter -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Filter_Type</div>
+    <div class="space-y-1" id="type-filter-list"></div>
+  </div>
+
+  <!-- Tag filter -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-[9px] text-outline uppercase tracking-widest">Filter_Tags</div>
+      <button onclick="clearTagFilter()" class="text-[9px] text-outline hover:text-primary">clear</button>
+    </div>
+    <div id="tag-filter-box" class="flex flex-wrap gap-1"></div>
+  </div>
+
+  <!-- Min-weight slider -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-[9px] text-outline uppercase tracking-widest">Min_Shared_Tags</div>
+      <span class="text-[10px] text-primary" id="weight-val">1</span>
+    </div>
+    <input id="weight-slider" type="range" min="1" max="5" value="1" step="1"
+      class="w-full h-0.5 bg-outline-variant accent-primary"
+      oninput="onWeightChange(+this.value)"/>
+  </div>
+
+  <!-- MOC clusters -->
+  <div class="p-4 flex-1">
+    <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Clusters_MOC</div>
+    <div id="cluster-list" class="space-y-1"></div>
+  </div>
+
+  <!-- Reset -->
+  <div class="p-4 border-t border-outline-variant">
+    <button onclick="resetView()"
+      class="w-full text-[10px] py-1 border border-outline-variant text-outline
+             hover:border-primary hover:text-primary transition-colors uppercase">
+      Reset_View
+    </button>
+  </div>
+</aside>
+
+<!-- ── Graph Canvas ── -->
+<main class="fixed left-[224px] right-[264px] top-12 bottom-0 bg-surface overflow-hidden"
+      id="graph-container">
+  <svg id="graph-svg" width="100%" height="100%"></svg>
+  <div id="tooltip"
+    class="absolute hidden pointer-events-none z-50 bg-surface-container-highest
+           border border-outline-variant px-3 py-2 max-w-[240px]"></div>
+</main>
+
+<!-- ── Right Detail Panel ── -->
+<aside class="fixed right-0 top-12 h-[calc(100vh-48px)] w-[264px]
+              bg-surface-container-high border-l border-outline-variant z-40 flex flex-col">
+  <div class="px-4 py-3 border-b border-outline-variant bg-surface-container-highest flex items-center justify-between">
+    <div class="text-[9px] font-bold text-on-surface uppercase tracking-widest">Node_Detail</div>
+  </div>
+  <div class="flex-1 p-4 overflow-y-auto" id="detail-panel">
+    <div class="text-center mt-10 space-y-2 opacity-30">
+      <div class="text-[28px]">◎</div>
+      <div class="text-[9px] text-outline uppercase tracking-widest">Click node<br>to inspect</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ── Full Note Reader (slides in over graph) ── -->
+<div id="note-reader"
+  class="fixed top-12 right-0 h-[calc(100vh-48px)] bg-surface border-l border-outline-variant z-50 flex flex-col
+         transition-all duration-300 ease-in-out"
+  style="width:0; overflow:hidden;">
+  <!-- Reader header -->
+  <div class="flex items-center justify-between px-4 py-3 border-b border-outline-variant bg-surface-container-highest shrink-0">
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="text-[9px] text-outline uppercase tracking-widest shrink-0">Full_Note</span>
+      <span class="text-[10px] text-primary font-bold truncate" id="reader-title"></span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a id="obsidian-link" href="#" title="Open in Obsidian"
+        class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline
+               hover:border-tertiary hover:text-tertiary transition-colors uppercase flex items-center gap-1">
+        <span style="font-size:11px">◈</span> Obsidian
+      </a>
+      <button onclick="closeReader()"
+        class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline
+               hover:border-error hover:text-error transition-colors uppercase">✕</button>
+    </div>
+  </div>
+  <!-- Markdown content -->
+  <div class="flex-1 overflow-y-auto px-5 py-4" id="reader-body"></div>
+</div>
+
+<script>
+// ── Palette & config ───────────────────────────────────────────────────────────
+const C = {
+  moc:    '#f6bd58',
+  atomic: '#c084fc',
+  paper:  '#bac3ff',
+  video:  '#fb923c',
+  repo:   '#4ade80',
+};
+const R = { moc:22, atomic:9, paper:8, video:8, repo:8 };
+const ICON  = { moc:'◉', atomic:'◆', paper:'◻', video:'▷', repo:'⌥' };
+const LABEL = { moc:'MOC', atomic:'Atomic', paper:'Paper', video:'Video', repo:'Repo' };
+
+// Tag-category → edge color
+const TAG_COLOR = {
+  'domain':    '#bac3ff',
+  'method':    '#fb923c',
+  'topic':     '#34d399',
+  'concept':   '#c084fc',
+  'pattern':   '#f6bd58',
+  'framework': '#60a5fa',
+  'language':  '#94a3b8',
+};
+function tagColor(tag) {
+  const prefix = tag.split('/')[0];
+  return TAG_COLOR[prefix] || '#555';
+}
+function tagPrefix(tag) { return tag.split('/')[0]; }
+
+// ── API base: same-origin when served by backend, explicit only for Vite dev ──
+const API_BASE = window.location.port === '5173' ? 'http://localhost:8000' : '';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let gNodes = [], gLinks = [], gTagIndex = {}, gStats = {};
+let activeTypes = new Set(Object.keys(C));
+let activeTagFilter = null;   // null = show all
+let minWeight = 1;
+let nodeSel, linkSel, sim, zoomBehavior;
+
+const container = document.getElementById('graph-container');
+let W = container.clientWidth, H = container.clientHeight;
+
+// ── Data loading ──────────────────────────────────────────────────────────────
+async function loadGraph() {
+  document.getElementById('loading').style.display = 'flex';
+  try {
+    const resp = await fetch(API_BASE + '/api/graph');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    gNodes    = data.nodes    || [];
+    gLinks    = data.edges    || [];
+    gTagIndex = data.tag_index || {};
+    gStats    = data.stats    || {};
+    initSidebar();
+    initGraph();
+  } catch(err) {
+    document.getElementById('loading').innerHTML =
+      `<div class="text-error text-[12px]">Failed to load graph: ${err.message}</div>
+       <div class="text-[10px] text-outline mt-2">Is the backend running at <span class="text-primary">http://localhost:8000</span>?</div>
+       <button onclick="reloadGraph()" class="mt-4 px-4 py-1 border border-outline-variant text-outline hover:text-primary text-[10px] uppercase">Retry</button>`;
+    return;
+  }
+  document.getElementById('loading').style.display = 'none';
+}
+
+function reloadGraph() {
+  if (sim) sim.stop();
+  d3.select('#graph-svg').selectAll('*').remove();
+  loadGraph();
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function initSidebar() {
+  // Stats
+  const counts = gNodes.reduce((a, n) => { a[n.type] = (a[n.type]||0)+1; return a; }, {});
+  document.getElementById('badge').textContent =
+    `${gStats.node_count||gNodes.length} nodes · ${gStats.edge_count||gLinks.length} edges`;
+
+  document.getElementById('stat-list').innerHTML =
+    Object.entries(C).map(([type, color]) =>
+      `<div class="flex items-center justify-between text-[11px]">
+         <span class="text-on-surface-variant">${ICON[type]} ${LABEL[type]}</span>
+         <span class="font-bold" style="color:${color}">${counts[type]||0}</span>
+       </div>`
+    ).join('') +
+    `<div class="flex items-center justify-between text-[11px] pt-1 border-t border-outline-variant mt-1">
+       <span class="text-outline">Edges</span>
+       <span class="font-bold text-outline">${gStats.edge_count||gLinks.length}</span>
+     </div>
+     <div class="flex items-center justify-between text-[11px]">
+       <span class="text-outline">Unique Tags</span>
+       <span class="font-bold text-outline">${gStats.tag_count||Object.keys(gTagIndex).length}</span>
+     </div>`;
+
+  // Type filter buttons
+  document.getElementById('type-filter-list').innerHTML =
+    Object.entries(C).map(([type, color]) =>
+      `<button id="f-${type}" onclick="toggleType('${type}')"
+         class="w-full flex items-center justify-between px-2 py-1 text-[11px] border transition-colors hover:bg-surface-container"
+         style="color:${color}; border-color:${color}33">
+         <span>${ICON[type]} ${type}</span>
+         <span class="text-[9px] opacity-50">${counts[type]||0}</span>
+       </button>`
+    ).join('');
+
+  // Top-20 tags by frequency, grouped by prefix
+  const tagCounts = Object.entries(gTagIndex)
+    .map(([tag, ids]) => ({ tag, count: ids.length }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 32);
+
+  document.getElementById('tag-filter-box').innerHTML = tagCounts.map(({ tag, count }) => {
+    const color = tagColor(tag);
+    const shortTag = tag.includes('/') ? tag.split('/').slice(1).join('/') : tag;
+    return `<span class="tag-chip" id="chip-${CSS.escape(tag)}"
+              style="color:${color};border-color:${color}44"
+              title="${tag} (${count} nodes)"
+              onclick="toggleTagFilter('${tag}')">${shortTag}</span>`;
+  }).join('');
+
+  // MOC cluster jumps
+  document.getElementById('cluster-list').innerHTML =
+    gNodes.filter(n => n.type === 'moc').map(n =>
+      `<button onclick="focusNode('${n.id}')"
+         class="w-full text-left text-[10px] py-1 px-1 text-outline hover:text-tertiary transition-colors truncate"
+         title="${n.title}">
+         ◉ ${n.title}
+       </button>`
+    ).join('') || '<div class="text-[10px] text-outline opacity-40">No MOCs found</div>';
+}
+
+// ── Graph init ────────────────────────────────────────────────────────────────
+function initGraph() {
+  const svg = d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+  W = container.clientWidth; H = container.clientHeight;
+
+  const g = svg.append('g');
+
+  zoomBehavior = d3.zoom()
+    .scaleExtent([0.05, 8])
+    .on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoomBehavior);
+
+  // Defs: arrowhead
+  svg.append('defs').append('marker')
+    .attr('id','arrow').attr('viewBox','0 -4 8 8')
+    .attr('refX',12).attr('refY',0)
+    .attr('markerWidth',6).attr('markerHeight',6)
+    .attr('orient','auto')
+    .append('path').attr('d','M0,-4L8,0L0,4').attr('fill','#444');
+
+  // Deep-copy nodes for simulation (avoid mutating source)
+  const nodes = gNodes.map(n => ({ ...n }));
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+  // Only keep links that pass min-weight and whose nodes exist
+  const links = gLinks
+    .filter(l => l.weight >= minWeight && nodeById.has(l.source) && nodeById.has(l.target))
+    .map(l => ({ ...l }));
+
+  // ── Draw links ─────────────────────────────────────────────────────────────
+  linkSel = g.append('g').attr('class','links').selectAll('line')
+    .data(links).join('line')
+    .attr('stroke',       l => tagColor(l.shared_tags?.[0] || 'domain/other'))
+    .attr('stroke-opacity', l => Math.min(0.15 + l.weight * 0.08, 0.55))
+    .attr('stroke-width', l => Math.min(0.5 + l.weight * 0.4, 3))
+    .on('mouseover', onLinkHover)
+    .on('mousemove',  onMove)
+    .on('mouseout',   onOut);
+
+  // ── Draw nodes ─────────────────────────────────────────────────────────────
+  nodeSel = g.append('g').attr('class','nodes').selectAll('g')
+    .data(nodes).join('g')
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; })
+    )
+    .on('mouseover', onHover)
+    .on('mousemove',  onMove)
+    .on('mouseout',   onOut)
+    .on('click', (e,d) => { e.stopPropagation(); showDetail(d, links); highlightNode(d, links); });
+
+  // Glow ring for MOC
+  nodeSel.filter(d=>d.type==='moc')
+    .append('circle').attr('r', d=>R[d.type]+12)
+    .attr('fill','none').attr('stroke', d=>C[d.type])
+    .attr('stroke-opacity', 0.10).attr('stroke-width', 12);
+
+  // Main circle
+  nodeSel.append('circle')
+    .attr('r', d=>R[d.type])
+    .attr('fill', d=>C[d.type])
+    .attr('fill-opacity', d=>d.type==='moc'?0.18:0.10)
+    .attr('stroke', d=>C[d.type])
+    .attr('stroke-width', d=>d.type==='moc'?2:1.5);
+
+  // MOC labels (always visible)
+  nodeSel.filter(d=>d.type==='moc')
+    .append('text').attr('class','node-label')
+    .attr('dy', d=>-R[d.type]-8).attr('text-anchor','middle')
+    .attr('fill', d=>C[d.type]).attr('font-size','10px').attr('font-weight','700')
+    .attr('letter-spacing','0.06em')
+    .text(d => d.title.length > 30 ? d.title.slice(0,28)+'…' : d.title.toUpperCase());
+
+  // Atomic labels (small, faded)
+  nodeSel.filter(d=>d.type==='atomic')
+    .append('text').attr('class','node-label')
+    .attr('dy', d=>-R[d.type]-5).attr('text-anchor','middle')
+    .attr('fill', d=>C[d.type]).attr('font-size','8px').attr('opacity',0.55)
+    .text(d => d.title.length > 26 ? d.title.slice(0,24)+'…' : d.title);
+
+  // ── Simulation ─────────────────────────────────────────────────────────────
+  sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id)
+      .distance(l => Math.max(40, 110 - l.weight * 12))
+      .strength(l => Math.min(0.3 + l.weight * 0.1, 0.8)))
+    .force('charge', d3.forceManyBody()
+      .strength(d => d.type==='moc' ? -800 : d.type==='atomic' ? -150 : -200))
+    .force('center', d3.forceCenter(W/2, H/2).strength(0.03))
+    .force('collide', d3.forceCollide(d => R[d.type] + 18));
+
+  function applyPositions() {
+    linkSel
+      .attr('x1', d=>d.source.x).attr('y1', d=>d.source.y)
+      .attr('x2', d=>d.target.x).attr('y2', d=>d.target.y);
+    nodeSel.attr('transform', d=>`translate(${d.x||0},${d.y||0})`);
+  }
+
+  // Pre-warm: 300 synchronous ticks → stable layout even in background tab
+  sim.stop();
+  for (let i = 0; i < 300; i++) sim.tick();
+  applyPositions();
+  sim.on('tick', applyPositions).alpha(0.05).restart();
+
+  // Click background → clear highlight
+  svg.on('click', () => {
+    nodeSel.style('opacity', 1);
+    linkSel.style('opacity', l => Math.min(0.15 + l.weight*0.08, 0.55));
+    document.getElementById('detail-panel').innerHTML = `
+      <div class="text-center mt-10 space-y-2 opacity-30">
+        <div class="text-[28px]">◎</div>
+        <div class="text-[9px] text-outline uppercase tracking-widest">Click node<br>to inspect</div>
+      </div>`;
+  });
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+const tip = document.getElementById('tooltip');
+
+function onHover(e, d) {
+  const sharedCount = gLinks.filter(l =>
+    (l.source===d.id||l.target===d.id) && l.weight >= minWeight).length;
+  tip.innerHTML = `
+    <div class="font-bold text-[12px] leading-tight" style="color:${C[d.type]}">${ICON[d.type]} ${d.title}</div>
+    <div class="text-[9px] text-outline uppercase mt-0.5">${LABEL[d.type]}</div>
+    <div class="text-[9px] text-outline mt-1">${sharedCount} connection${sharedCount!==1?'s':''}</div>
+    ${d.tags?.length ? `<div class="text-[8px] text-outline mt-1 opacity-60 leading-relaxed">${d.tags.slice(0,6).join(' · ')}${d.tags.length>6?` +${d.tags.length-6}`:''}</div>` : ''}
+  `;
+  tip.classList.remove('hidden');
+}
+
+function onLinkHover(e, l) {
+  const s = typeof l.source==='object' ? l.source : gNodes.find(n=>n.id===l.source);
+  const t = typeof l.target==='object' ? l.target : gNodes.find(n=>n.id===l.target);
+  const sTitle = s?.title || l.source;
+  const tTitle = t?.title || l.target;
+  tip.innerHTML = `
+    <div class="text-[9px] font-bold text-on-surface">${sTitle}</div>
+    <div class="text-[8px] text-outline my-0.5">⟷ ${l.weight} shared tag${l.weight!==1?'s':''}</div>
+    <div class="text-[9px] font-bold text-on-surface">${tTitle}</div>
+    <div class="flex flex-wrap gap-1 mt-1.5">
+      ${(l.shared_tags||[]).map(t=>`<span style="color:${tagColor(t)};border-color:${tagColor(t)}44" class="tag-chip">${t}</span>`).join('')}
+    </div>
+  `;
+  tip.classList.remove('hidden');
+}
+
+function onMove(e) {
+  const b = container.getBoundingClientRect();
+  let x = e.clientX - b.left + 14, y = e.clientY - b.top - 10;
+  if (x + 250 > W) x -= 260;
+  Object.assign(tip.style, { left:x+'px', top:y+'px' });
+}
+function onOut() { tip.classList.add('hidden'); }
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+function showDetail(d, links) {
+  const color = C[d.type];
+  // gather connections (object form after simulation)
+  const conns = (links || []).reduce((acc, l) => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    if (sId === d.id) acc.push({ id:tId, weight:l.weight, tags:l.shared_tags, dir:'→' });
+    else if (tId === d.id) acc.push({ id:sId, weight:l.weight, tags:l.shared_tags, dir:'←' });
+    return acc;
+  }, []).sort((a,b) => b.weight - a.weight);
+
+  document.getElementById('detail-panel').innerHTML = `
+    <div class="border-l-2 pl-3 mb-4" style="border-color:${color}">
+      <div class="text-[9px] uppercase mb-1" style="color:${color}">${ICON[d.type]} ${LABEL[d.type]}</div>
+      <div class="text-[13px] font-bold text-on-surface leading-snug">${d.title}</div>
+    </div>
+
+    ${d.snippet ? `
+    <div class="mb-4 text-[10px] text-on-surface-variant leading-relaxed opacity-70 border-l border-outline-variant pl-2">
+      ${d.snippet.slice(0,160)}${d.snippet.length>160?'…':''}
+    </div>` : ''}
+
+    ${d.tags?.length ? `
+    <div class="mb-4">
+      <div class="text-[9px] text-outline uppercase mb-2 tracking-widest">Tags (${d.tags.length})</div>
+      <div class="flex flex-wrap gap-1">
+        ${d.tags.map(t=>`<span class="tag-chip" style="color:${tagColor(t)};border-color:${tagColor(t)}44"
+          onclick="toggleTagFilter('${t}')">${t}</span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    ${d.file ? `
+    <div class="mb-4">
+      <div class="text-[9px] text-outline uppercase mb-1 tracking-widest">Vault File</div>
+      <div class="text-[9px] text-primary font-mono break-all leading-snug opacity-80">${d.file}</div>
+      <button onclick="openReader('${d.file}', '${d.title.replace(/'/g,"\\'")}', '${color}')"
+        class="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 border text-[10px] uppercase font-bold
+               transition-colors hover:bg-surface-container"
+        style="color:${color}; border-color:${color}55">
+        <span style="font-size:13px">◈</span> Read Full Note
+      </button>
+    </div>` : ''}
+
+    <div>
+      <div class="text-[9px] text-outline uppercase mb-2 tracking-widest">Connections (${conns.length})</div>
+      <div class="space-y-2">
+        ${conns.slice(0,15).map(({id, weight, tags, dir}) => {
+          const n = gNodes.find(x=>x.id===id);
+          if(!n) return '';
+          const nColor = C[n.type]||'#888';
+          const sharedStr = (tags||[]).slice(0,3).join(', ') + (tags?.length>3?` +${tags.length-3}`:'');
+          return `<div class="flex items-start gap-2 py-1.5 border-b border-outline-variant/20 cursor-pointer hover:bg-surface-container/50"
+                       onclick="focusNode('${n.id}')">
+            <span class="text-[12px] mt-0.5 shrink-0" style="color:${nColor}">${ICON[n.type]}</span>
+            <div class="min-w-0">
+              <div class="text-[10px] font-bold truncate" style="color:${nColor}">${n.title}</div>
+              <div class="text-[8px] text-outline">${weight} shared · ${sharedStr}</div>
+            </div>
+          </div>`;
+        }).join('')}
+        ${conns.length>15?`<div class="text-[9px] text-outline text-center pt-1">+${conns.length-15} more</div>`:''}
+      </div>
+    </div>
+  `;
+}
+
+function highlightNode(d, links) {
+  const connected = new Set([d.id]);
+  (links||[]).forEach(l => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    if (sId===d.id||tId===d.id) { connected.add(sId); connected.add(tId); }
+  });
+  nodeSel.style('opacity', n => connected.has(n.id) ? 1 : 0.10);
+  linkSel.style('opacity', l => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    return (sId===d.id||tId===d.id)
+      ? Math.min(0.4 + l.weight*0.15, 0.9)
+      : 0.03;
+  });
+}
+
+// ── Type filter ───────────────────────────────────────────────────────────────
+function toggleType(type) {
+  if(activeTypes.has(type)) activeTypes.delete(type);
+  else activeTypes.add(type);
+  document.getElementById(`f-${type}`).style.opacity = activeTypes.has(type) ? '1' : '0.25';
+  applyFilters();
+}
+
+// ── Tag filter ────────────────────────────────────────────────────────────────
+function toggleTagFilter(tag) {
+  if (activeTagFilter === tag) {
+    activeTagFilter = null;
+  } else {
+    activeTagFilter = tag;
+  }
+  // Update chip styles
+  document.querySelectorAll('.tag-chip').forEach(el => {
+    const chipTag = el.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+    if (chipTag) el.classList.toggle('inactive', activeTagFilter && chipTag !== activeTagFilter);
+  });
+  applyFilters();
+}
+
+function clearTagFilter() {
+  activeTagFilter = null;
+  document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
+  applyFilters();
+}
+
+// ── Weight filter ─────────────────────────────────────────────────────────────
+function onWeightChange(val) {
+  minWeight = val;
+  document.getElementById('weight-val').textContent = val;
+  // Rebuild graph with new edge set (lightweight — just opacity)
+  if (linkSel) {
+    linkSel.style('opacity', l =>
+      l.weight >= minWeight ? Math.min(0.15 + l.weight*0.08, 0.55) : 0);
+  }
+}
+
+// ── Combined filter ───────────────────────────────────────────────────────────
+function applyFilters() {
+  if (!nodeSel || !linkSel) return;
+  const tagNodes = activeTagFilter ? new Set(gTagIndex[activeTagFilter] || []) : null;
+
+  nodeSel.style('opacity', n => {
+    if (!activeTypes.has(n.type)) return 0.03;
+    if (tagNodes && !tagNodes.has(n.id)) return 0.06;
+    return 1;
+  });
+
+  linkSel.style('opacity', l => {
+    if (l.weight < minWeight) return 0;
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    const sNode = gNodes.find(n=>n.id===sId);
+    const tNode = gNodes.find(n=>n.id===tId);
+    if (!activeTypes.has(sNode?.type) || !activeTypes.has(tNode?.type)) return 0;
+    if (tagNodes && !tagNodes.has(sId) && !tagNodes.has(tId)) return 0;
+    return Math.min(0.15 + l.weight*0.08, 0.55);
+  });
+}
+
+// ── Focus / zoom to node ──────────────────────────────────────────────────────
+function focusNode(id) {
+  const node = gNodes.find(n=>n.id===id);
+  // The simulation node (with x,y) is different from gNodes; find via DOM
+  if (!nodeSel) return;
+  let pos = null;
+  nodeSel.each(function(d) { if(d.id===id) pos = {x:d.x, y:d.y}; });
+  if (!pos) return;
+  const scale = 1.8;
+  const tx = W/2 - scale * pos.x;
+  const ty = H/2 - scale * pos.y;
+  d3.select('#graph-svg').transition().duration(650)
+    .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
+  if (node) {
+    // Trigger click-like behavior
+    const links = [];
+    linkSel.each(function(l) { links.push(l); });
+    showDetail(node, links);
+    highlightNode({ id }, links);
+  }
+}
+
+// ── Reset view ────────────────────────────────────────────────────────────────
+function resetView() {
+  d3.select('#graph-svg').transition().duration(600)
+    .call(zoomBehavior.transform, d3.zoomIdentity);
+  activeTagFilter = null;
+  document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
+  if (nodeSel) nodeSel.style('opacity', 1);
+  if (linkSel) linkSel.style('opacity', l => Math.min(0.15+l.weight*0.08, 0.55));
+}
+
+// ── Resize handler ────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  W = container.clientWidth; H = container.clientHeight;
+  if (sim) sim.force('center', d3.forceCenter(W/2, H/2).strength(0.03)).alpha(0.1).restart();
+});
+
+// ── Full Note Reader ──────────────────────────────────────────────────────────
+
+// Configure marked: safe rendering, highlight code blocks
+marked.setOptions({ gfm: true, breaks: true });
+
+// Render Obsidian callouts `> [!type] Title` as styled divs
+function preprocessObsidianMd(md) {
+  // Strip YAML frontmatter — display separately
+  let fm = '';
+  const fmMatch = md.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (fmMatch) {
+    fm = fmMatch[1];
+    md = md.slice(fmMatch[0].length);
+  }
+  // Render callouts > [!type] title as blockquote with class
+  md = md.replace(/^> \[!([\w]+)\](.*?)$([\s\S]*?)(?=^[^>]|\n\n|$)/gm,
+    (_, type, title, body) => {
+      const clean = body.replace(/^> ?/gm, '').trim();
+      return `<div class="callout" data-type="${type}"><strong>[${type.toUpperCase()}]${title}</strong><br>${clean}</div>`;
+    });
+  // Wikilinks [[Note]] → styled span
+  md = md.replace(/\[\[([^\]]+)\]\]/g, `<span style="color:#bac3ff;border-bottom:1px dashed #454651">$1</span>`);
+  return { fm, md };
+}
+
+function renderFrontmatter(fm) {
+  if (!fm) return '';
+  const lines = fm.split('\n').map(line => {
+    const m = line.match(/^(\s*-?\s*)([\w_-]+):\s*(.*)$/);
+    if (m) return `<span class="fm-tag">${m[1]}${m[2]}:</span> <span class="fm-val">${m[3]}</span>`;
+    return `<span style="color:#555">${line}</span>`;
+  });
+  return `<div class="fm-block">${lines.join('<br>')}</div>`;
+}
+
+async function openReader(file, title, color) {
+  const reader  = document.getElementById('note-reader');
+  const body    = document.getElementById('reader-body');
+  const titleEl = document.getElementById('reader-title');
+  const obsLink = document.getElementById('obsidian-link');
+
+  // Show panel (expand width)
+  titleEl.textContent = title;
+  titleEl.style.color = color;
+  body.innerHTML = `<div class="text-[10px] text-outline text-center mt-10 animate-pulse">Loading…</div>`;
+  reader.style.width  = '520px';
+  reader.style.overflow = 'visible';
+
+  // Shrink graph canvas to make room
+  document.getElementById('graph-container').style.right = '520px';
+
+  try {
+    const resp = await fetch(API_BASE + `/api/vault/note?note_file=${encodeURIComponent(file)}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    // Set Obsidian link
+    obsLink.href = data.obsidian_url;
+
+    // Parse + render
+    const { fm, md } = preprocessObsidianMd(data.content);
+    const fmHtml  = renderFrontmatter(fm);
+    const mdHtml  = marked.parse(md);
+    body.innerHTML = fmHtml + mdHtml;
+
+  } catch(err) {
+    body.innerHTML = `<div class="text-error text-[11px] mt-4">Failed to load: ${err.message}</div>`;
+  }
+}
+
+function closeReader() {
+  const reader = document.getElementById('note-reader');
+  reader.style.width   = '0';
+  reader.style.overflow = 'hidden';
+  document.getElementById('graph-container').style.right = '264px';
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadGraph();
+</script>
+</body>
+</html>
