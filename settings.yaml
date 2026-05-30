@@ -10,6 +10,8 @@ platforms:
       - anthropic/claude-opus-4
       - google/gemini-2.0-flash-001
       - google/gemini-2.5-pro
+      - deepseek/deepseek-v4-pro
+      - deepseek/deepseek-v4-flash
       - deepseek/deepseek-chat-v3-0324
       - meta-llama/llama-4-maverick
     api_key_env: OPENROUTER_API_KEY
