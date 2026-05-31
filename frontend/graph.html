@@ -23,7 +23,10 @@
   .tag-chip { display:inline-block; cursor:pointer; padding:1px 6px; font-size:9px;
               border:1px solid; transition:opacity .15s; }
   .tag-chip.inactive { opacity:0.2; }
-  /* Markdown renderer styles */
+  /* Search input */
+  #search-input { outline:none; }
+  #search-input:focus { border-color:#bac3ff; }
+  /* Markdown renderer */
   #reader-body h1,#reader-body h2,#reader-body h3 { color:#e3e1e9; font-weight:700; margin:1.2em 0 .4em; letter-spacing:.03em; }
   #reader-body h1 { font-size:13px; border-bottom:1px solid #333; padding-bottom:.3em; }
   #reader-body h2 { font-size:12px; }
@@ -43,13 +46,15 @@
   #reader-body th { background:#161616; color:#bac3ff; }
   #reader-body hr { border:none; border-top:1px solid #333; margin:1em 0; }
   #reader-body a { color:#bac3ff; text-decoration:underline; text-underline-offset:2px; }
-  /* Obsidian callout → styled blockquote */
   #reader-body .callout { border-left:2px solid #bac3ff; background:#0d0e13;
                            padding:.4em .8em; margin:.5em 0; font-size:10px; }
-  /* YAML frontmatter block */
   .fm-block { background:#0d0e13; border:1px solid #333; padding:8px 12px; margin-bottom:12px;
                font-size:9px; color:#666; font-family:'JetBrains Mono',monospace; }
   .fm-block .fm-tag { color:#bac3ff; } .fm-block .fm-val { color:#f6bd58; }
+  /* Timeline */
+  .tl-card { border-left:2px solid; transition:all .15s; }
+  .tl-card.selected { background:#0d0e13; }
+  .tl-card.dimmed { opacity:0.25; }
   #loading { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
              justify-content:center; background:#050505; z-index:300; gap:12px; }
   #loading .spin { width:32px; height:32px; border:2px solid #333;
@@ -88,7 +93,18 @@ tailwind.config = {
     <span class="text-sm font-bold text-primary tracking-tighter">SUMMARIZE_AGENT_v2.0</span>
     <span class="text-[10px] text-outline font-mono opacity-50">// KNOWLEDGE_GRAPH</span>
   </div>
-  <div class="flex items-center gap-4">
+  <div class="flex items-center gap-3">
+    <!-- View toggle -->
+    <div class="flex items-center gap-0.5 border border-outline-variant">
+      <button id="btn-graph" onclick="setView('graph')"
+        class="text-[9px] px-3 py-1 uppercase tracking-wider transition-all text-primary bg-surface-container">
+        ◉ Graph
+      </button>
+      <button id="btn-timeline" onclick="setView('timeline')"
+        class="text-[9px] px-3 py-1 uppercase tracking-wider transition-all text-outline">
+        ≡ Timeline
+      </button>
+    </div>
     <span class="text-[10px] text-outline" id="badge">—</span>
     <button onclick="reloadGraph()" title="Reload from vault"
       class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">↻ Reload</button>
@@ -101,6 +117,20 @@ tailwind.config = {
 <!-- ── Left Sidebar ── -->
 <aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-[224px] flex flex-col
               bg-surface-container-low border-r border-outline-variant z-40 overflow-y-auto">
+
+  <!-- Search -->
+  <div class="p-3 border-b border-outline-variant">
+    <div class="relative">
+      <input id="search-input" type="text" placeholder="Search nodes, tags…"
+        class="w-full bg-surface text-[10px] px-2 py-1.5 border border-outline-variant
+               text-on-surface placeholder-outline font-mono transition-colors"
+        oninput="onSearch(this.value)"/>
+      <button id="search-clear" onclick="clearSearch()"
+        class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] text-outline
+               hover:text-primary transition-colors hidden">✕</button>
+    </div>
+    <div class="text-[9px] text-outline mt-1 h-3" id="search-count"></div>
+  </div>
 
   <!-- Stats -->
   <div class="p-4 border-b border-outline-variant">
@@ -123,8 +153,8 @@ tailwind.config = {
     <div id="tag-filter-box" class="flex flex-wrap gap-1"></div>
   </div>
 
-  <!-- Min-weight slider -->
-  <div class="p-4 border-b border-outline-variant">
+  <!-- Min-weight slider (graph only) -->
+  <div class="p-4 border-b border-outline-variant" id="weight-section">
     <div class="flex items-center justify-between mb-2">
       <div class="text-[9px] text-outline uppercase tracking-widest">Min_Shared_Tags</div>
       <span class="text-[10px] text-primary" id="weight-val">1</span>
@@ -159,11 +189,24 @@ tailwind.config = {
            border border-outline-variant px-3 py-2 max-w-[240px]"></div>
 </main>
 
+<!-- ── Timeline View ── -->
+<div id="timeline-view"
+  class="fixed left-[224px] right-[264px] top-12 bottom-0 bg-surface overflow-y-auto"
+  style="display:none">
+  <div id="timeline-content" class="px-6 py-5 max-w-2xl mx-auto"></div>
+</div>
+
 <!-- ── Right Detail Panel ── -->
 <aside class="fixed right-0 top-12 h-[calc(100vh-48px)] w-[264px]
               bg-surface-container-high border-l border-outline-variant z-40 flex flex-col">
   <div class="px-4 py-3 border-b border-outline-variant bg-surface-container-highest flex items-center justify-between">
     <div class="text-[9px] font-bold text-on-surface uppercase tracking-widest">Node_Detail</div>
+    <div id="detail-nav" class="flex items-center gap-1 hidden">
+      <button onclick="navHistory(-1)" title="Back" id="btn-back"
+        class="text-[11px] text-outline hover:text-primary px-1 disabled:opacity-20">←</button>
+      <button onclick="navHistory(1)" title="Forward" id="btn-fwd"
+        class="text-[11px] text-outline hover:text-primary px-1 disabled:opacity-20">→</button>
+    </div>
   </div>
   <div class="flex-1 p-4 overflow-y-auto" id="detail-panel">
     <div class="text-center mt-10 space-y-2 opacity-30">
@@ -173,12 +216,11 @@ tailwind.config = {
   </div>
 </aside>
 
-<!-- ── Full Note Reader (slides in over graph) ── -->
+<!-- ── Full Note Reader ── -->
 <div id="note-reader"
   class="fixed top-12 right-0 h-[calc(100vh-48px)] bg-surface border-l border-outline-variant z-50 flex flex-col
          transition-all duration-300 ease-in-out"
   style="width:0; overflow:hidden;">
-  <!-- Reader header -->
   <div class="flex items-center justify-between px-4 py-3 border-b border-outline-variant bg-surface-container-highest shrink-0">
     <div class="flex items-center gap-3 min-w-0">
       <span class="text-[9px] text-outline uppercase tracking-widest shrink-0">Full_Note</span>
@@ -195,53 +237,41 @@ tailwind.config = {
                hover:border-error hover:text-error transition-colors uppercase">✕</button>
     </div>
   </div>
-  <!-- Markdown content -->
   <div class="flex-1 overflow-y-auto px-5 py-4" id="reader-body"></div>
 </div>
 
 <script>
-// ── Palette & config ───────────────────────────────────────────────────────────
-const C = {
-  moc:    '#f6bd58',
-  atomic: '#c084fc',
-  paper:  '#bac3ff',
-  video:  '#fb923c',
-  repo:   '#4ade80',
-};
+// ── Palette ───────────────────────────────────────────────────────────────────
+const C = { moc:'#f6bd58', atomic:'#c084fc', paper:'#bac3ff', video:'#fb923c', repo:'#4ade80' };
 const R = { moc:22, atomic:9, paper:8, video:8, repo:8 };
 const ICON  = { moc:'◉', atomic:'◆', paper:'◻', video:'▷', repo:'⌥' };
 const LABEL = { moc:'MOC', atomic:'Atomic', paper:'Paper', video:'Video', repo:'Repo' };
+const MONTH = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// Tag-category → edge color
 const TAG_COLOR = {
-  'domain':    '#bac3ff',
-  'method':    '#fb923c',
-  'topic':     '#34d399',
-  'concept':   '#c084fc',
-  'pattern':   '#f6bd58',
-  'framework': '#60a5fa',
-  'language':  '#94a3b8',
+  domain:'#bac3ff', method:'#fb923c', topic:'#34d399',
+  concept:'#c084fc', pattern:'#f6bd58', framework:'#60a5fa', language:'#94a3b8',
 };
-function tagColor(tag) {
-  const prefix = tag.split('/')[0];
-  return TAG_COLOR[prefix] || '#555';
-}
-function tagPrefix(tag) { return tag.split('/')[0]; }
+function tagColor(tag) { return TAG_COLOR[tag.split('/')[0]] || '#555'; }
 
-// ── API base: same-origin when served by backend, explicit only for Vite dev ──
 const API_BASE = window.location.port === '5173' ? 'http://localhost:8000' : '';
 
-// ── State ─────────────────────────────────────────────────────────────────────
+// ── Global state ──────────────────────────────────────────────────────────────
 let gNodes = [], gLinks = [], gTagIndex = {}, gStats = {};
-let activeTypes = new Set(Object.keys(C));
-let activeTagFilter = null;   // null = show all
-let minWeight = 1;
-let nodeSel, linkSel, sim, zoomBehavior;
+let activeTypes  = new Set(Object.keys(C));
+let activeTagFilter = null;
+let minWeight    = 1;
+let searchQuery  = '';
+let currentView  = 'graph';   // 'graph' | 'timeline'
+let selectedNode = null;       // currently selected node (from gNodes)
+let navStack     = [];         // history for ← → navigation
+let navIdx       = -1;
 
+let nodeSel, linkSel, sim, zoomBehavior;
 const container = document.getElementById('graph-container');
 let W = container.clientWidth, H = container.clientHeight;
 
-// ── Data loading ──────────────────────────────────────────────────────────────
+// ── Load ──────────────────────────────────────────────────────────────────────
 async function loadGraph() {
   document.getElementById('loading').style.display = 'flex';
   try {
@@ -256,8 +286,7 @@ async function loadGraph() {
     initGraph();
   } catch(err) {
     document.getElementById('loading').innerHTML =
-      `<div class="text-error text-[12px]">Failed to load graph: ${err.message}</div>
-       <div class="text-[10px] text-outline mt-2">Is the backend running at <span class="text-primary">http://localhost:8000</span>?</div>
+      `<div class="text-error text-[12px]">Failed: ${err.message}</div>
        <button onclick="reloadGraph()" class="mt-4 px-4 py-1 border border-outline-variant text-outline hover:text-primary text-[10px] uppercase">Retry</button>`;
     return;
   }
@@ -267,12 +296,13 @@ async function loadGraph() {
 function reloadGraph() {
   if (sim) sim.stop();
   d3.select('#graph-svg').selectAll('*').remove();
+  navStack = []; navIdx = -1;
+  selectedNode = null;
   loadGraph();
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
+// ── Sidebar init ──────────────────────────────────────────────────────────────
 function initSidebar() {
-  // Stats
   const counts = gNodes.reduce((a, n) => { a[n.type] = (a[n.type]||0)+1; return a; }, {});
   document.getElementById('badge').textContent =
     `${gStats.node_count||gNodes.length} nodes · ${gStats.edge_count||gLinks.length} edges`;
@@ -285,15 +315,12 @@ function initSidebar() {
        </div>`
     ).join('') +
     `<div class="flex items-center justify-between text-[11px] pt-1 border-t border-outline-variant mt-1">
-       <span class="text-outline">Edges</span>
-       <span class="font-bold text-outline">${gStats.edge_count||gLinks.length}</span>
+       <span class="text-outline">Edges</span><span class="font-bold text-outline">${gStats.edge_count||gLinks.length}</span>
      </div>
      <div class="flex items-center justify-between text-[11px]">
-       <span class="text-outline">Unique Tags</span>
-       <span class="font-bold text-outline">${gStats.tag_count||Object.keys(gTagIndex).length}</span>
+       <span class="text-outline">Unique Tags</span><span class="font-bold text-outline">${gStats.tag_count||Object.keys(gTagIndex).length}</span>
      </div>`;
 
-  // Type filter buttons
   document.getElementById('type-filter-list').innerHTML =
     Object.entries(C).map(([type, color]) =>
       `<button id="f-${type}" onclick="toggleType('${type}')"
@@ -304,30 +331,25 @@ function initSidebar() {
        </button>`
     ).join('');
 
-  // Top-20 tags by frequency, grouped by prefix
   const tagCounts = Object.entries(gTagIndex)
     .map(([tag, ids]) => ({ tag, count: ids.length }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 32);
+    .sort((a, b) => b.count - a.count).slice(0, 32);
 
   document.getElementById('tag-filter-box').innerHTML = tagCounts.map(({ tag, count }) => {
     const color = tagColor(tag);
-    const shortTag = tag.includes('/') ? tag.split('/').slice(1).join('/') : tag;
+    const short = tag.includes('/') ? tag.split('/').slice(1).join('/') : tag;
     return `<span class="tag-chip" id="chip-${CSS.escape(tag)}"
               style="color:${color};border-color:${color}44"
               title="${tag} (${count} nodes)"
-              onclick="toggleTagFilter('${tag}')">${shortTag}</span>`;
+              onclick="toggleTagFilter('${tag}')">${short}</span>`;
   }).join('');
 
-  // MOC cluster jumps
   document.getElementById('cluster-list').innerHTML =
     gNodes.filter(n => n.type === 'moc').map(n =>
       `<button onclick="focusNode('${n.id}')"
          class="w-full text-left text-[10px] py-1 px-1 text-outline hover:text-tertiary transition-colors truncate"
-         title="${n.title}">
-         ◉ ${n.title}
-       </button>`
-    ).join('') || '<div class="text-[10px] text-outline opacity-40">No MOCs found</div>';
+         title="${n.title}">◉ ${n.title}</button>`
+    ).join('') || '<div class="text-[10px] text-outline opacity-40">No MOCs</div>';
 }
 
 // ── Graph init ────────────────────────────────────────────────────────────────
@@ -337,52 +359,43 @@ function initGraph() {
   W = container.clientWidth; H = container.clientHeight;
 
   const g = svg.append('g');
-
-  zoomBehavior = d3.zoom()
-    .scaleExtent([0.05, 8])
+  zoomBehavior = d3.zoom().scaleExtent([0.05, 8])
     .on('zoom', e => g.attr('transform', e.transform));
   svg.call(zoomBehavior);
 
-  // Defs: arrowhead
   svg.append('defs').append('marker')
     .attr('id','arrow').attr('viewBox','0 -4 8 8')
-    .attr('refX',12).attr('refY',0)
-    .attr('markerWidth',6).attr('markerHeight',6)
-    .attr('orient','auto')
+    .attr('refX',12).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
     .append('path').attr('d','M0,-4L8,0L0,4').attr('fill','#444');
 
-  // Deep-copy nodes for simulation (avoid mutating source)
   const nodes = gNodes.map(n => ({ ...n }));
   const nodeById = new Map(nodes.map(n => [n.id, n]));
-
-  // Only keep links that pass min-weight and whose nodes exist
   const links = gLinks
     .filter(l => l.weight >= minWeight && nodeById.has(l.source) && nodeById.has(l.target))
     .map(l => ({ ...l }));
 
-  // ── Draw links ─────────────────────────────────────────────────────────────
   linkSel = g.append('g').attr('class','links').selectAll('line')
     .data(links).join('line')
-    .attr('stroke',       l => tagColor(l.shared_tags?.[0] || 'domain/other'))
+    .attr('stroke',         l => tagColor(l.shared_tags?.[0] || 'domain/other'))
     .attr('stroke-opacity', l => Math.min(0.15 + l.weight * 0.08, 0.55))
-    .attr('stroke-width', l => Math.min(0.5 + l.weight * 0.4, 3))
-    .on('mouseover', onLinkHover)
-    .on('mousemove',  onMove)
-    .on('mouseout',   onOut);
+    .attr('stroke-width',   l => Math.min(0.5 + l.weight * 0.4, 3))
+    .on('mouseover', onLinkHover).on('mousemove', onMove).on('mouseout', onOut);
 
-  // ── Draw nodes ─────────────────────────────────────────────────────────────
   nodeSel = g.append('g').attr('class','nodes').selectAll('g')
-    .data(nodes).join('g')
-    .style('cursor','pointer')
+    .data(nodes).join('g').style('cursor','pointer')
     .call(d3.drag()
       .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
       .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; })
-    )
-    .on('mouseover', onHover)
-    .on('mousemove',  onMove)
-    .on('mouseout',   onOut)
-    .on('click', (e,d) => { e.stopPropagation(); showDetail(d, links); highlightNode(d, links); });
+      .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('mouseover', onHover).on('mousemove', onMove).on('mouseout', onOut)
+    .on('click', (e, d) => {
+      e.stopPropagation();
+      // Use gNodes entry (has date_created etc.) but pass live sim links
+      const staticNode = gNodes.find(n => n.id === d.id) || d;
+      const liveLinks = [];
+      linkSel.each(function(l) { liveLinks.push(l); });
+      selectNode(staticNode, liveLinks, true);
+    });
 
   // Glow ring for MOC
   nodeSel.filter(d=>d.type==='moc')
@@ -390,30 +403,23 @@ function initGraph() {
     .attr('fill','none').attr('stroke', d=>C[d.type])
     .attr('stroke-opacity', 0.10).attr('stroke-width', 12);
 
-  // Main circle
   nodeSel.append('circle')
     .attr('r', d=>R[d.type])
-    .attr('fill', d=>C[d.type])
-    .attr('fill-opacity', d=>d.type==='moc'?0.18:0.10)
-    .attr('stroke', d=>C[d.type])
-    .attr('stroke-width', d=>d.type==='moc'?2:1.5);
+    .attr('fill', d=>C[d.type]).attr('fill-opacity', d=>d.type==='moc'?0.18:0.10)
+    .attr('stroke', d=>C[d.type]).attr('stroke-width', d=>d.type==='moc'?2:1.5);
 
-  // MOC labels (always visible)
   nodeSel.filter(d=>d.type==='moc')
     .append('text').attr('class','node-label')
     .attr('dy', d=>-R[d.type]-8).attr('text-anchor','middle')
-    .attr('fill', d=>C[d.type]).attr('font-size','10px').attr('font-weight','700')
-    .attr('letter-spacing','0.06em')
+    .attr('fill', d=>C[d.type]).attr('font-size','10px').attr('font-weight','700').attr('letter-spacing','0.06em')
     .text(d => d.title.length > 30 ? d.title.slice(0,28)+'…' : d.title.toUpperCase());
 
-  // Atomic labels (small, faded)
   nodeSel.filter(d=>d.type==='atomic')
     .append('text').attr('class','node-label')
     .attr('dy', d=>-R[d.type]-5).attr('text-anchor','middle')
     .attr('fill', d=>C[d.type]).attr('font-size','8px').attr('opacity',0.55)
     .text(d => d.title.length > 26 ? d.title.slice(0,24)+'…' : d.title);
 
-  // ── Simulation ─────────────────────────────────────────────────────────────
   sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d=>d.id)
       .distance(l => Math.max(40, 110 - l.weight * 12))
@@ -424,90 +430,85 @@ function initGraph() {
     .force('collide', d3.forceCollide(d => R[d.type] + 18));
 
   function applyPositions() {
-    linkSel
-      .attr('x1', d=>d.source.x).attr('y1', d=>d.source.y)
-      .attr('x2', d=>d.target.x).attr('y2', d=>d.target.y);
+    linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+           .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
     nodeSel.attr('transform', d=>`translate(${d.x||0},${d.y||0})`);
   }
 
-  // Pre-warm: 300 synchronous ticks → stable layout even in background tab
   sim.stop();
   for (let i = 0; i < 300; i++) sim.tick();
   applyPositions();
   sim.on('tick', applyPositions).alpha(0.05).restart();
 
-  // Click background → clear highlight
+  // Background click → deselect
   svg.on('click', () => {
-    nodeSel.style('opacity', 1);
-    linkSel.style('opacity', l => Math.min(0.15 + l.weight*0.08, 0.55));
+    selectedNode = null;
+    if (nodeSel) nodeSel.style('opacity', 1);
+    if (linkSel) linkSel.style('opacity', l => Math.min(0.15 + l.weight*0.08, 0.55));
     document.getElementById('detail-panel').innerHTML = `
       <div class="text-center mt-10 space-y-2 opacity-30">
         <div class="text-[28px]">◎</div>
         <div class="text-[9px] text-outline uppercase tracking-widest">Click node<br>to inspect</div>
       </div>`;
+    document.getElementById('detail-nav').classList.add('hidden');
+    if (searchQuery) applySearch();
+    else if (activeTagFilter) applyFilters();
   });
+
+  // Re-apply selection if something was selected before reload
+  if (selectedNode) {
+    const liveLinks = [];
+    // defer to let sim settle
+    setTimeout(() => {
+      linkSel.each(function(l) { liveLinks.push(l); });
+      showDetail(selectedNode, liveLinks);
+      highlightNode(selectedNode, liveLinks);
+    }, 50);
+  }
 }
 
-// ── Tooltip ───────────────────────────────────────────────────────────────────
-const tip = document.getElementById('tooltip');
+// ── Node selection (single source of truth) ───────────────────────────────────
+function selectNode(node, links, pushHistory = false) {
+  selectedNode = node;
 
-function onHover(e, d) {
-  const sharedCount = gLinks.filter(l =>
-    (l.source===d.id||l.target===d.id) && l.weight >= minWeight).length;
-  tip.innerHTML = `
-    <div class="font-bold text-[12px] leading-tight" style="color:${C[d.type]}">${ICON[d.type]} ${d.title}</div>
-    <div class="text-[9px] text-outline uppercase mt-0.5">${LABEL[d.type]}</div>
-    <div class="text-[9px] text-outline mt-1">${sharedCount} connection${sharedCount!==1?'s':''}</div>
-    ${d.tags?.length ? `<div class="text-[8px] text-outline mt-1 opacity-60 leading-relaxed">${d.tags.slice(0,6).join(' · ')}${d.tags.length>6?` +${d.tags.length-6}`:''}</div>` : ''}
-  `;
-  tip.classList.remove('hidden');
-}
+  // History stack for ← → navigation
+  if (pushHistory) {
+    // Trim forward history
+    navStack = navStack.slice(0, navIdx + 1);
+    navStack.push(node.id);
+    navIdx = navStack.length - 1;
+  }
+  updateNavButtons();
 
-function onLinkHover(e, l) {
-  const s = typeof l.source==='object' ? l.source : gNodes.find(n=>n.id===l.source);
-  const t = typeof l.target==='object' ? l.target : gNodes.find(n=>n.id===l.target);
-  const sTitle = s?.title || l.source;
-  const tTitle = t?.title || l.target;
-  tip.innerHTML = `
-    <div class="text-[9px] font-bold text-on-surface">${sTitle}</div>
-    <div class="text-[8px] text-outline my-0.5">⟷ ${l.weight} shared tag${l.weight!==1?'s':''}</div>
-    <div class="text-[9px] font-bold text-on-surface">${tTitle}</div>
-    <div class="flex flex-wrap gap-1 mt-1.5">
-      ${(l.shared_tags||[]).map(t=>`<span style="color:${tagColor(t)};border-color:${tagColor(t)}44" class="tag-chip">${t}</span>`).join('')}
-    </div>
-  `;
-  tip.classList.remove('hidden');
-}
+  showDetail(node, links);
+  highlightNode(node, links);
 
-function onMove(e) {
-  const b = container.getBoundingClientRect();
-  let x = e.clientX - b.left + 14, y = e.clientY - b.top - 10;
-  if (x + 250 > W) x -= 260;
-  Object.assign(tip.style, { left:x+'px', top:y+'px' });
+  // Sync timeline selection if visible
+  if (currentView === 'timeline') syncTimelineSelection(node.id);
 }
-function onOut() { tip.classList.add('hidden'); }
 
 // ── Detail panel ──────────────────────────────────────────────────────────────
 function showDetail(d, links) {
-  const color = C[d.type];
-  // gather connections (object form after simulation)
+  const color = C[d.type] || '#888';
   const conns = (links || []).reduce((acc, l) => {
     const sId = typeof l.source==='object' ? l.source.id : l.source;
     const tId = typeof l.target==='object' ? l.target.id : l.target;
-    if (sId === d.id) acc.push({ id:tId, weight:l.weight, tags:l.shared_tags, dir:'→' });
-    else if (tId === d.id) acc.push({ id:sId, weight:l.weight, tags:l.shared_tags, dir:'←' });
+    if (sId === d.id) acc.push({ id:tId, weight:l.weight, tags:l.shared_tags });
+    else if (tId === d.id) acc.push({ id:sId, weight:l.weight, tags:l.shared_tags });
     return acc;
   }, []).sort((a,b) => b.weight - a.weight);
 
+  document.getElementById('detail-nav').classList.remove('hidden');
   document.getElementById('detail-panel').innerHTML = `
     <div class="border-l-2 pl-3 mb-4" style="border-color:${color}">
       <div class="text-[9px] uppercase mb-1" style="color:${color}">${ICON[d.type]} ${LABEL[d.type]}</div>
       <div class="text-[13px] font-bold text-on-surface leading-snug">${d.title}</div>
+      ${d.date_created ? `<div class="text-[9px] text-outline mt-1 font-mono">${d.date_created}</div>` : ''}
     </div>
 
     ${d.snippet ? `
     <div class="mb-4 text-[10px] text-on-surface-variant leading-relaxed opacity-70 border-l border-outline-variant pl-2">
-      ${d.snippet.slice(0,160)}${d.snippet.length>160?'…':''}
+      ${d.snippet.slice(0,180)}${d.snippet.length>180?'…':''}
     </div>` : ''}
 
     ${d.tags?.length ? `
@@ -533,166 +534,363 @@ function showDetail(d, links) {
 
     <div>
       <div class="text-[9px] text-outline uppercase mb-2 tracking-widest">Connections (${conns.length})</div>
-      <div class="space-y-2">
-        ${conns.slice(0,15).map(({id, weight, tags, dir}) => {
+      <div class="space-y-0">
+        ${conns.slice(0,20).map(({id, weight, tags}) => {
           const n = gNodes.find(x=>x.id===id);
           if(!n) return '';
           const nColor = C[n.type]||'#888';
           const sharedStr = (tags||[]).slice(0,3).join(', ') + (tags?.length>3?` +${tags.length-3}`:'');
-          return `<div class="flex items-start gap-2 py-1.5 border-b border-outline-variant/20 cursor-pointer hover:bg-surface-container/50"
+          return `<div class="flex items-start gap-2 py-1.5 border-b border-outline-variant/20 cursor-pointer
+                               hover:bg-surface-container/50 group"
                        onclick="focusNode('${n.id}')">
             <span class="text-[12px] mt-0.5 shrink-0" style="color:${nColor}">${ICON[n.type]}</span>
-            <div class="min-w-0">
-              <div class="text-[10px] font-bold truncate" style="color:${nColor}">${n.title}</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[10px] font-bold truncate group-hover:opacity-100 transition-opacity"
+                   style="color:${nColor}">${n.title}</div>
               <div class="text-[8px] text-outline">${weight} shared · ${sharedStr}</div>
             </div>
           </div>`;
         }).join('')}
-        ${conns.length>15?`<div class="text-[9px] text-outline text-center pt-1">+${conns.length-15} more</div>`:''}
+        ${conns.length>20?`<div class="text-[9px] text-outline text-center pt-2">+${conns.length-20} more</div>`:''}
       </div>
     </div>
   `;
 }
 
 function highlightNode(d, links) {
-  const connected = new Set([d.id]);
+  if (!nodeSel || !linkSel) return;
+  const id = d.id;
+  const connected = new Set([id]);
   (links||[]).forEach(l => {
     const sId = typeof l.source==='object' ? l.source.id : l.source;
     const tId = typeof l.target==='object' ? l.target.id : l.target;
-    if (sId===d.id||tId===d.id) { connected.add(sId); connected.add(tId); }
+    if (sId===id||tId===id) { connected.add(sId); connected.add(tId); }
   });
-  nodeSel.style('opacity', n => connected.has(n.id) ? 1 : 0.10);
+  nodeSel.style('opacity', n => connected.has(n.id) ? 1 : 0.08);
   linkSel.style('opacity', l => {
     const sId = typeof l.source==='object' ? l.source.id : l.source;
     const tId = typeof l.target==='object' ? l.target.id : l.target;
-    return (sId===d.id||tId===d.id)
-      ? Math.min(0.4 + l.weight*0.15, 0.9)
-      : 0.03;
+    return (sId===id||tId===id) ? Math.min(0.4+l.weight*0.15, 0.9) : 0.02;
   });
 }
 
-// ── Type filter ───────────────────────────────────────────────────────────────
+// ── Nav history ← → ──────────────────────────────────────────────────────────
+function updateNavButtons() {
+  document.getElementById('btn-back').style.opacity = navIdx > 0 ? '1' : '0.2';
+  document.getElementById('btn-fwd').style.opacity  = navIdx < navStack.length-1 ? '1' : '0.2';
+}
+
+function navHistory(dir) {
+  const next = navIdx + dir;
+  if (next < 0 || next >= navStack.length) return;
+  navIdx = next;
+  updateNavButtons();
+  focusNode(navStack[navIdx], false); // don't push history
+}
+
+// ── Focus node (from sidebar / connection clicks) ─────────────────────────────
+function focusNode(id, pushHistory = true) {
+  const node = gNodes.find(n => n.id === id);
+  if (!node) return;
+
+  // Collect live links from simulation
+  const liveLinks = [];
+  if (linkSel) linkSel.each(function(l) { liveLinks.push(l); });
+
+  selectNode(node, liveLinks, pushHistory);
+
+  // Pan+zoom to node in graph view
+  if (currentView === 'graph' && nodeSel) {
+    let pos = null;
+    nodeSel.each(function(d) { if (d.id === id) pos = { x: d.x, y: d.y }; });
+    if (pos) {
+      const scale = 1.8;
+      d3.select('#graph-svg').transition().duration(600)
+        .call(zoomBehavior.transform, d3.zoomIdentity
+          .translate(W/2 - scale * pos.x, H/2 - scale * pos.y).scale(scale));
+    }
+  }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function onSearch(query) {
+  searchQuery = query.trim().toLowerCase();
+  document.getElementById('search-clear').classList.toggle('hidden', !searchQuery);
+  if (searchQuery) applySearch();
+  else { document.getElementById('search-count').textContent = ''; applyFilters(); }
+  if (currentView === 'timeline') renderTimeline();
+}
+
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  onSearch('');
+}
+
+function applySearch() {
+  if (!searchQuery) return;
+  const matching = new Set(
+    gNodes.filter(n =>
+      n.title.toLowerCase().includes(searchQuery) ||
+      (n.tags||[]).some(t => t.toLowerCase().includes(searchQuery)) ||
+      (n.snippet||'').toLowerCase().includes(searchQuery)
+    ).map(n => n.id)
+  );
+  document.getElementById('search-count').textContent =
+    `${matching.size} match${matching.size !== 1 ? 'es' : ''}`;
+
+  if (nodeSel) nodeSel.style('opacity', n => matching.has(n.id) ? 1 : 0.05);
+  if (linkSel) linkSel.style('opacity', l => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    return (matching.has(sId) && matching.has(tId))
+      ? Math.min(0.15 + l.weight * 0.08, 0.55) : 0.02;
+  });
+}
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+function setView(view) {
+  currentView = view;
+  const isGraph = view === 'graph';
+
+  document.getElementById('graph-container').style.display = isGraph ? '' : 'none';
+  document.getElementById('timeline-view').style.display   = isGraph ? 'none' : '';
+  document.getElementById('weight-section').style.display  = isGraph ? '' : 'none';
+
+  document.getElementById('btn-graph').style.cssText    = isGraph
+    ? 'color:#bac3ff;background:#0f0f0f' : 'color:#454651;background:transparent';
+  document.getElementById('btn-timeline').style.cssText = !isGraph
+    ? 'color:#bac3ff;background:#0f0f0f' : 'color:#454651;background:transparent';
+
+  closeReader(); // close reader on view switch
+  if (!isGraph) renderTimeline();
+}
+
+// ── Timeline ──────────────────────────────────────────────────────────────────
+function renderTimeline() {
+  const filterQ = searchQuery;
+  const filterType  = activeTagFilter;
+  const filterTypes = activeTypes;
+
+  // Filter nodes
+  const visible = gNodes.filter(n => {
+    if (!filterTypes.has(n.type)) return false;
+    if (filterType && !(n.tags||[]).includes(filterType)) return false;
+    if (filterQ && !n.title.toLowerCase().includes(filterQ) &&
+        !(n.tags||[]).some(t=>t.includes(filterQ)) &&
+        !(n.snippet||'').toLowerCase().includes(filterQ)) return false;
+    return true;
+  });
+
+  // Group by YYYY-MM
+  const groups = {};
+  const undated = [];
+  for (const n of visible) {
+    const d = n.date_created || '';
+    const ym = d.length >= 7 ? d.slice(0,7) : '';
+    if (ym) (groups[ym] = groups[ym]||[]).push(n);
+    else undated.push(n);
+  }
+
+  const months = Object.keys(groups).sort().reverse();
+  let html = '';
+
+  if (!months.length && !undated.length) {
+    html = `<div class="text-center text-[11px] text-outline mt-20 opacity-40">No notes match current filters</div>`;
+  }
+
+  for (const ym of months) {
+    const [yr, mo] = ym.split('-');
+    const label = `${MONTH[+mo]} ${yr}`;
+    const sorted = groups[ym].sort((a,b)=>(b.date_created||'').localeCompare(a.date_created||''));
+    html += `
+      <div class="mb-8">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="text-[9px] text-outline uppercase tracking-widest">${label}</div>
+          <div class="flex-1 h-px bg-outline-variant/40"></div>
+          <div class="text-[9px] text-outline">${sorted.length}</div>
+        </div>
+        <div class="space-y-2">${sorted.map(n => timelineCard(n)).join('')}</div>
+      </div>`;
+  }
+
+  if (undated.length) {
+    html += `
+      <div class="mb-8 opacity-50">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="text-[9px] text-outline uppercase tracking-widest">Undated</div>
+          <div class="flex-1 h-px bg-outline-variant/40"></div>
+          <div class="text-[9px] text-outline">${undated.length}</div>
+        </div>
+        <div class="space-y-2">${undated.map(n => timelineCard(n)).join('')}</div>
+      </div>`;
+  }
+
+  document.getElementById('timeline-content').innerHTML = html;
+
+  // Re-apply selection highlight
+  if (selectedNode) syncTimelineSelection(selectedNode.id);
+}
+
+function timelineCard(n) {
+  const color = C[n.type] || '#888';
+  const tagHtml = (n.tags||[]).slice(0,5).map(t =>
+    `<span style="color:${tagColor(t)};border-color:${tagColor(t)}33" class="tag-chip text-[8px]">${
+      t.includes('/') ? t.split('/').slice(1).join('/') : t
+    }</span>`
+  ).join('');
+  return `
+    <div class="tl-card flex items-start gap-3 p-3 cursor-pointer hover:bg-surface-container/60"
+         data-tl-id="${n.id}" style="border-color:${color}22"
+         onclick="selectFromTimeline('${n.id}')">
+      <div class="shrink-0 mt-0.5 w-4 text-center">
+        <span style="color:${color}">${ICON[n.type]}</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-[11px] font-bold text-on-surface leading-snug">${n.title}</div>
+        ${n.snippet ? `<div class="text-[9px] text-outline leading-relaxed mt-0.5 line-clamp-2 opacity-70">${n.snippet.slice(0,130)}</div>` : ''}
+        ${tagHtml ? `<div class="flex flex-wrap gap-1 mt-1.5">${tagHtml}</div>` : ''}
+      </div>
+      ${n.date_created ? `<div class="text-[8px] text-outline shrink-0 font-mono whitespace-nowrap mt-0.5">${n.date_created}</div>` : ''}
+    </div>`;
+}
+
+function selectFromTimeline(id) {
+  const node = gNodes.find(n => n.id === id);
+  if (!node) return;
+  const liveLinks = [];
+  if (linkSel) linkSel.each(function(l) { liveLinks.push(l); });
+  selectNode(node, liveLinks, true);
+}
+
+function syncTimelineSelection(id) {
+  document.querySelectorAll('[data-tl-id]').forEach(el => {
+    const isSelected = el.dataset.tlId === id;
+    el.style.background = isSelected ? '#0d0e13' : '';
+    el.style.borderLeftWidth = isSelected ? '2px' : '';
+    el.style.borderLeftColor = isSelected ? (C[selectedNode?.type]||'#555') : (selectedNode ? '#111' : '');
+    el.style.opacity = (!id || isSelected) ? '1' : '0.4';
+  });
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+const tip = document.getElementById('tooltip');
+function onHover(e, d) {
+  const cnt = gLinks.filter(l=>
+    (l.source===d.id||l.target===d.id) && l.weight>=minWeight).length;
+  tip.innerHTML = `
+    <div class="font-bold text-[12px] leading-tight" style="color:${C[d.type]}">${ICON[d.type]} ${d.title}</div>
+    <div class="text-[9px] text-outline uppercase mt-0.5">${LABEL[d.type]}</div>
+    ${d.date_created ? `<div class="text-[9px] text-outline mt-0.5 font-mono">${d.date_created}</div>` : ''}
+    <div class="text-[9px] text-outline mt-1">${cnt} connection${cnt!==1?'s':''}</div>
+    ${d.tags?.length ? `<div class="text-[8px] text-outline mt-1 opacity-60">${d.tags.slice(0,5).join(' · ')}${d.tags.length>5?` +${d.tags.length-5}`:''}</div>` : ''}`;
+  tip.classList.remove('hidden');
+}
+function onLinkHover(e, l) {
+  const s = typeof l.source==='object'?l.source:gNodes.find(n=>n.id===l.source);
+  const t = typeof l.target==='object'?l.target:gNodes.find(n=>n.id===l.target);
+  tip.innerHTML = `
+    <div class="text-[9px] font-bold text-on-surface">${s?.title||l.source}</div>
+    <div class="text-[8px] text-outline my-0.5">⟷ ${l.weight} shared tag${l.weight!==1?'s':''}</div>
+    <div class="text-[9px] font-bold text-on-surface">${t?.title||l.target}</div>
+    <div class="flex flex-wrap gap-1 mt-1.5">
+      ${(l.shared_tags||[]).map(t=>`<span style="color:${tagColor(t)};border-color:${tagColor(t)}44" class="tag-chip">${t}</span>`).join('')}
+    </div>`;
+  tip.classList.remove('hidden');
+}
+function onMove(e) {
+  const b = container.getBoundingClientRect();
+  let x = e.clientX - b.left + 14, y = e.clientY - b.top - 10;
+  if (x + 250 > W) x -= 260;
+  Object.assign(tip.style, { left:x+'px', top:y+'px' });
+}
+function onOut() { tip.classList.add('hidden'); }
+
+// ── Filters ───────────────────────────────────────────────────────────────────
 function toggleType(type) {
-  if(activeTypes.has(type)) activeTypes.delete(type);
-  else activeTypes.add(type);
+  if(activeTypes.has(type)) activeTypes.delete(type); else activeTypes.add(type);
   document.getElementById(`f-${type}`).style.opacity = activeTypes.has(type) ? '1' : '0.25';
   applyFilters();
+  if (currentView === 'timeline') renderTimeline();
 }
 
-// ── Tag filter ────────────────────────────────────────────────────────────────
 function toggleTagFilter(tag) {
-  if (activeTagFilter === tag) {
-    activeTagFilter = null;
-  } else {
-    activeTagFilter = tag;
-  }
-  // Update chip styles
+  activeTagFilter = activeTagFilter === tag ? null : tag;
   document.querySelectorAll('.tag-chip').forEach(el => {
-    const chipTag = el.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
-    if (chipTag) el.classList.toggle('inactive', activeTagFilter && chipTag !== activeTagFilter);
+    const t = el.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+    if (t) el.classList.toggle('inactive', !!activeTagFilter && t !== activeTagFilter);
   });
   applyFilters();
+  if (currentView === 'timeline') renderTimeline();
 }
 
 function clearTagFilter() {
   activeTagFilter = null;
   document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
   applyFilters();
+  if (currentView === 'timeline') renderTimeline();
 }
 
-// ── Weight filter ─────────────────────────────────────────────────────────────
 function onWeightChange(val) {
   minWeight = val;
   document.getElementById('weight-val').textContent = val;
-  // Rebuild graph with new edge set (lightweight — just opacity)
-  if (linkSel) {
-    linkSel.style('opacity', l =>
-      l.weight >= minWeight ? Math.min(0.15 + l.weight*0.08, 0.55) : 0);
-  }
+  if (linkSel) linkSel.style('opacity', l =>
+    l.weight >= minWeight ? Math.min(0.15+l.weight*0.08,0.55) : 0);
 }
 
-// ── Combined filter ───────────────────────────────────────────────────────────
 function applyFilters() {
+  if (searchQuery) { applySearch(); return; }
   if (!nodeSel || !linkSel) return;
-  const tagNodes = activeTagFilter ? new Set(gTagIndex[activeTagFilter] || []) : null;
-
+  const tagNodes = activeTagFilter ? new Set(gTagIndex[activeTagFilter]||[]) : null;
   nodeSel.style('opacity', n => {
     if (!activeTypes.has(n.type)) return 0.03;
     if (tagNodes && !tagNodes.has(n.id)) return 0.06;
     return 1;
   });
-
   linkSel.style('opacity', l => {
     if (l.weight < minWeight) return 0;
-    const sId = typeof l.source==='object' ? l.source.id : l.source;
-    const tId = typeof l.target==='object' ? l.target.id : l.target;
-    const sNode = gNodes.find(n=>n.id===sId);
-    const tNode = gNodes.find(n=>n.id===tId);
-    if (!activeTypes.has(sNode?.type) || !activeTypes.has(tNode?.type)) return 0;
+    const sId = typeof l.source==='object'?l.source.id:l.source;
+    const tId = typeof l.target==='object'?l.target.id:l.target;
+    const sN = gNodes.find(n=>n.id===sId), tN = gNodes.find(n=>n.id===tId);
+    if (!activeTypes.has(sN?.type)||!activeTypes.has(tN?.type)) return 0;
     if (tagNodes && !tagNodes.has(sId) && !tagNodes.has(tId)) return 0;
-    return Math.min(0.15 + l.weight*0.08, 0.55);
+    return Math.min(0.15+l.weight*0.08,0.55);
   });
 }
 
-// ── Focus / zoom to node ──────────────────────────────────────────────────────
-function focusNode(id) {
-  const node = gNodes.find(n=>n.id===id);
-  // The simulation node (with x,y) is different from gNodes; find via DOM
-  if (!nodeSel) return;
-  let pos = null;
-  nodeSel.each(function(d) { if(d.id===id) pos = {x:d.x, y:d.y}; });
-  if (!pos) return;
-  const scale = 1.8;
-  const tx = W/2 - scale * pos.x;
-  const ty = H/2 - scale * pos.y;
-  d3.select('#graph-svg').transition().duration(650)
-    .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
-  if (node) {
-    // Trigger click-like behavior
-    const links = [];
-    linkSel.each(function(l) { links.push(l); });
-    showDetail(node, links);
-    highlightNode({ id }, links);
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetView() {
+  searchQuery = ''; activeTagFilter = null;
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-count').textContent = '';
+  document.getElementById('search-clear').classList.add('hidden');
+  document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
+  if (currentView === 'graph') {
+    d3.select('#graph-svg').transition().duration(600)
+      .call(zoomBehavior.transform, d3.zoomIdentity);
+    if (nodeSel) nodeSel.style('opacity', 1);
+    if (linkSel) linkSel.style('opacity', l => Math.min(0.15+l.weight*0.08,0.55));
+  } else {
+    renderTimeline();
   }
 }
 
-// ── Reset view ────────────────────────────────────────────────────────────────
-function resetView() {
-  d3.select('#graph-svg').transition().duration(600)
-    .call(zoomBehavior.transform, d3.zoomIdentity);
-  activeTagFilter = null;
-  document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
-  if (nodeSel) nodeSel.style('opacity', 1);
-  if (linkSel) linkSel.style('opacity', l => Math.min(0.15+l.weight*0.08, 0.55));
-}
-
-// ── Resize handler ────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   W = container.clientWidth; H = container.clientHeight;
-  if (sim) sim.force('center', d3.forceCenter(W/2, H/2).strength(0.03)).alpha(0.1).restart();
+  if (sim) sim.force('center', d3.forceCenter(W/2,H/2).strength(0.03)).alpha(0.1).restart();
 });
 
 // ── Full Note Reader ──────────────────────────────────────────────────────────
+marked.setOptions({ gfm:true, breaks:true });
 
-// Configure marked: safe rendering, highlight code blocks
-marked.setOptions({ gfm: true, breaks: true });
-
-// Render Obsidian callouts `> [!type] Title` as styled divs
 function preprocessObsidianMd(md) {
-  // Strip YAML frontmatter — display separately
   let fm = '';
   const fmMatch = md.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (fmMatch) {
-    fm = fmMatch[1];
-    md = md.slice(fmMatch[0].length);
-  }
-  // Render callouts > [!type] title as blockquote with class
+  if (fmMatch) { fm = fmMatch[1]; md = md.slice(fmMatch[0].length); }
   md = md.replace(/^> \[!([\w]+)\](.*?)$([\s\S]*?)(?=^[^>]|\n\n|$)/gm,
     (_, type, title, body) => {
-      const clean = body.replace(/^> ?/gm, '').trim();
+      const clean = body.replace(/^> ?/gm,'').trim();
       return `<div class="callout" data-type="${type}"><strong>[${type.toUpperCase()}]${title}</strong><br>${clean}</div>`;
     });
-  // Wikilinks [[Note]] → styled span
   md = md.replace(/\[\[([^\]]+)\]\]/g, `<span style="color:#bac3ff;border-bottom:1px dashed #454651">$1</span>`);
   return { fm, md };
 }
@@ -713,40 +911,33 @@ async function openReader(file, title, color) {
   const titleEl = document.getElementById('reader-title');
   const obsLink = document.getElementById('obsidian-link');
 
-  // Show panel (expand width)
   titleEl.textContent = title;
   titleEl.style.color = color;
   body.innerHTML = `<div class="text-[10px] text-outline text-center mt-10 animate-pulse">Loading…</div>`;
-  reader.style.width  = '520px';
+  reader.style.width   = '520px';
   reader.style.overflow = 'visible';
 
-  // Shrink graph canvas to make room
-  document.getElementById('graph-container').style.right = '520px';
+  // Shrink canvas
+  document.getElementById('graph-container').style.right  = '520px';
+  document.getElementById('timeline-view').style.right    = '520px';
 
   try {
     const resp = await fetch(API_BASE + `/api/vault/note?note_file=${encodeURIComponent(file)}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-
-    // Set Obsidian link
     obsLink.href = data.obsidian_url;
-
-    // Parse + render
     const { fm, md } = preprocessObsidianMd(data.content);
-    const fmHtml  = renderFrontmatter(fm);
-    const mdHtml  = marked.parse(md);
-    body.innerHTML = fmHtml + mdHtml;
-
+    body.innerHTML = renderFrontmatter(fm) + marked.parse(md);
   } catch(err) {
-    body.innerHTML = `<div class="text-error text-[11px] mt-4">Failed to load: ${err.message}</div>`;
+    body.innerHTML = `<div class="text-error text-[11px] mt-4">Failed: ${err.message}</div>`;
   }
 }
 
 function closeReader() {
-  const reader = document.getElementById('note-reader');
-  reader.style.width   = '0';
-  reader.style.overflow = 'hidden';
+  document.getElementById('note-reader').style.width   = '0';
+  document.getElementById('note-reader').style.overflow = 'hidden';
   document.getElementById('graph-container').style.right = '264px';
+  document.getElementById('timeline-view').style.right   = '264px';
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

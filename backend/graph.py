@@ -113,14 +113,18 @@ def build_graph() -> dict[str, Any]:
                 snippet = clean[:120]
                 break
 
+        date_raw = fm.get("date_created") or fm.get("date") or ""
+        date_created = str(date_raw).strip() if date_raw else ""
+
         node = {
-            "id":       node_id,
-            "title":    title,
-            "type":     node_type,
-            "tags":     tags,
-            "file":     str(md_path.relative_to(vault)).replace("\\", "/"),
-            "snippet":  snippet,
-            "folder":   top_folder,
+            "id":           node_id,
+            "title":        title,
+            "type":         node_type,
+            "tags":         tags,
+            "file":         str(md_path.relative_to(vault)).replace("\\", "/"),
+            "snippet":      snippet,
+            "folder":       top_folder,
+            "date_created": date_created,
         }
         nodes.append(node)
         node_map[node_id] = node
