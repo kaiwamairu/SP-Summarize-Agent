@@ -105,6 +105,12 @@ tailwind.config = {
         ≡ Timeline
       </button>
     </div>
+    <!-- Trust overlay toggle -->
+    <button id="btn-trust" onclick="toggleTrustOverlay()" title="Toggle trust score rings"
+      class="text-[9px] px-3 py-1 border border-outline-variant uppercase tracking-wider transition-all"
+      style="color:#4ade80;border-color:#4ade8044">
+      ⬡ Trust
+    </button>
     <span class="text-[10px] text-outline" id="badge">—</span>
     <button onclick="reloadGraph()" title="Reload from vault"
       class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">↻ Reload</button>
@@ -136,6 +142,34 @@ tailwind.config = {
   <div class="p-4 border-b border-outline-variant">
     <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Vault_Stats</div>
     <div id="stat-list" class="space-y-2"></div>
+  </div>
+
+  <!-- Trust legend -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-[9px] text-outline uppercase tracking-widest">Trust_Score</div>
+      <span class="text-[9px] text-outline" id="trust-coverage">—</span>
+    </div>
+    <div class="space-y-1.5">
+      <div class="flex items-center gap-2 text-[10px]">
+        <div class="w-2 h-2 border" style="background:#4ade8033;border-color:#4ade80"></div>
+        <span style="color:#4ade80">HIGH</span>
+        <span class="text-outline text-[9px]">≥ 0.75</span>
+        <span class="ml-auto text-[9px] text-outline" id="trust-cnt-high">—</span>
+      </div>
+      <div class="flex items-center gap-2 text-[10px]">
+        <div class="w-2 h-2 border" style="background:#f6bd5833;border-color:#f6bd58"></div>
+        <span style="color:#f6bd58">MID</span>
+        <span class="text-outline text-[9px]">0.50–0.74</span>
+        <span class="ml-auto text-[9px] text-outline" id="trust-cnt-mid">—</span>
+      </div>
+      <div class="flex items-center gap-2 text-[10px]">
+        <div class="w-2 h-2 border" style="background:#f8717133;border-color:#f87171"></div>
+        <span style="color:#f87171">LOW</span>
+        <span class="text-outline text-[9px]">< 0.50</span>
+        <span class="ml-auto text-[9px] text-outline" id="trust-cnt-low">—</span>
+      </div>
+    </div>
   </div>
 
   <!-- Node type filter -->
@@ -254,10 +288,26 @@ const TAG_COLOR = {
 };
 function tagColor(tag) { return TAG_COLOR[tag.split('/')[0]] || '#555'; }
 
+// ── Trust color ───────────────────────────────────────────────────────────────
+function trustColor(composite) {
+  if (composite === null || composite === undefined) return '#555';
+  if (composite >= 0.75) return '#4ade80';   // green  — high
+  if (composite >= 0.50) return '#f6bd58';   // yellow — mid
+  return '#f87171';                           // red    — low
+}
+function trustLabel(composite) {
+  if (composite === null || composite === undefined) return '—';
+  if (composite >= 0.75) return 'HIGH';
+  if (composite >= 0.50) return 'MID';
+  return 'LOW';
+}
+
 const API_BASE = window.location.port === '5173' ? 'http://localhost:8000' : '';
 
 // ── Global state ──────────────────────────────────────────────────────────────
 let gNodes = [], gLinks = [], gTagIndex = {}, gStats = {};
+let gTrustScores = {};         // node.id (stem) -> trust obj from /api/vault/trust
+let showTrustOverlay = true;   // toggle trust rings on/off
 let activeTypes  = new Set(Object.keys(C));
 let activeTagFilter = null;
 let minWeight    = 1;
@@ -276,13 +326,23 @@ let W = container.clientWidth, H = container.clientHeight;
 async function loadGraph() {
   document.getElementById('loading').style.display = 'flex';
   try {
-    const resp = await fetch(API_BASE + '/api/graph');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const [graphResp, trustResp] = await Promise.all([
+      fetch(API_BASE + '/api/graph'),
+      fetch(API_BASE + '/api/vault/trust').catch(() => null),
+    ]);
+    if (!graphResp.ok) throw new Error(`HTTP ${graphResp.status}`);
+    const data = await graphResp.json();
     gNodes    = data.nodes    || [];
     gLinks    = data.edges    || [];
     gTagIndex = data.tag_index || {};
     gStats    = data.stats    || {};
+
+    // Trust scores — optional (graceful if endpoint not available)
+    if (trustResp && trustResp.ok) {
+      const td = await trustResp.json();
+      gTrustScores = td.scores || {};
+    }
+
     initSidebar();
     initGraph();
   } catch(err) {
@@ -351,6 +411,24 @@ function initSidebar() {
          class="w-full text-left text-[10px] py-1 px-1 text-outline hover:text-tertiary transition-colors truncate"
          title="${n.title}">◉ ${n.title}</button>`
     ).join('') || '<div class="text-[10px] text-outline opacity-40">No MOCs</div>';
+
+  // Trust legend counts
+  updateTrustLegend();
+}
+
+function updateTrustLegend() {
+  const scored = Object.values(gTrustScores);
+  const total  = gNodes.length;
+  const hi  = scored.filter(t => t.composite >= 0.75).length;
+  const mid = scored.filter(t => t.composite >= 0.50 && t.composite < 0.75).length;
+  const lo  = scored.filter(t => t.composite < 0.50).length;
+  const cvg = scored.length;
+
+  document.getElementById('trust-coverage').textContent =
+    cvg ? `${cvg}/${total} scored` : 'Not scored yet';
+  document.getElementById('trust-cnt-high').textContent = hi || '—';
+  document.getElementById('trust-cnt-mid').textContent  = mid || '—';
+  document.getElementById('trust-cnt-low').textContent  = lo || '—';
 }
 
 // ── Graph init ────────────────────────────────────────────────────────────────
@@ -408,6 +486,23 @@ function initGraph() {
     .attr('r', d=>R[d.type])
     .attr('fill', d=>C[d.type]).attr('fill-opacity', d=>d.type==='moc'?0.18:0.10)
     .attr('stroke', d=>C[d.type]).attr('stroke-width', d=>d.type==='moc'?2:1.5);
+
+  // ── Trust score overlay ring (dashed, colored by composite) ──────────────
+  nodeSel.append('circle')
+    .attr('class', 'trust-ring')
+    .attr('r', d => R[d.type] + (d.type === 'moc' ? 8 : 5))
+    .attr('fill', 'none')
+    .attr('stroke-dasharray', '3,2')
+    .attr('stroke-width', 1.5)
+    .attr('stroke', d => {
+      const t = gTrustScores[d.id];
+      return t ? trustColor(t.composite) : '#555';
+    })
+    .attr('stroke-opacity', d => {
+      if (!showTrustOverlay) return 0;
+      const t = gTrustScores[d.id];
+      return t ? 0.65 : 0;
+    });
 
   nodeSel.filter(d=>d.type==='moc')
     .append('text').attr('class','node-label')
@@ -538,6 +633,35 @@ function showDetail(d, links) {
           onclick="toggleTagFilter('${t}')">${t}</span>`).join('')}
       </div>
     </div>` : ''}
+
+    ${(() => {
+      const t = gTrustScores[d.id];
+      if (!t) return '';
+      const pct = v => Math.round((v||0)*100);
+      const axes = ['credibility','recency','methodology','specificity'];
+      return `
+      <div class="mb-4 border border-outline-variant/30 p-3 bg-surface-container/40">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[9px] text-outline uppercase tracking-widest">Trust_Score</div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[15px] font-bold" style="color:${trustColor(t.composite)}">${pct(t.composite)}</span>
+            <span class="text-[8px]" style="color:${trustColor(t.composite)}">${trustLabel(t.composite)}</span>
+          </div>
+        </div>
+        ${axes.map(axis => `
+          <div class="mb-1.5">
+            <div class="flex justify-between text-[8px] mb-0.5">
+              <span class="text-outline capitalize">${axis}</span>
+              <span style="color:${trustColor(t[axis]||0)}">${pct(t[axis])}</span>
+            </div>
+            <div class="h-px bg-outline-variant/30 w-full relative">
+              <div class="h-full absolute left-0 top-0 transition-all"
+                   style="width:${pct(t[axis])}%;background:${trustColor(t[axis]||0)};opacity:0.7"></div>
+            </div>
+          </div>`).join('')}
+        ${t.last_analyzed ? `<div class="text-[8px] text-outline mt-2 opacity-50">Last scored: ${t.last_analyzed}</div>` : ''}
+      </div>`;
+    })()}
 
     ${d.file ? `
     <div class="mb-4">
@@ -769,7 +893,14 @@ function timelineCard(n) {
         ${n.snippet ? `<div class="text-[9px] text-outline leading-relaxed mt-0.5 line-clamp-2 opacity-70">${n.snippet.slice(0,130)}</div>` : ''}
         ${tagHtml ? `<div class="flex flex-wrap gap-1 mt-1.5">${tagHtml}</div>` : ''}
       </div>
-      ${n.date_created ? `<div class="text-[8px] text-outline shrink-0 font-mono whitespace-nowrap mt-0.5">${n.date_created}</div>` : ''}
+      <div class="shrink-0 flex flex-col items-end gap-1">
+        ${n.date_created ? `<div class="text-[8px] text-outline font-mono whitespace-nowrap">${n.date_created}</div>` : ''}
+        ${(() => {
+          const t = gTrustScores[n.id];
+          if (!t) return '';
+          return `<div class="text-[8px] font-mono" style="color:${trustColor(t.composite)}">⬡ ${Math.round(t.composite*100)}</div>`;
+        })()}
+      </div>
     </div>`;
 }
 
@@ -796,11 +927,13 @@ const tip = document.getElementById('tooltip');
 function onHover(e, d) {
   const cnt = gLinks.filter(l=>
     (l.source===d.id||l.target===d.id) && l.weight>=minWeight).length;
+  const trust = gTrustScores[d.id];
   tip.innerHTML = `
     <div class="font-bold text-[12px] leading-tight" style="color:${C[d.type]}">${ICON[d.type]} ${d.title}</div>
     <div class="text-[9px] text-outline uppercase mt-0.5">${LABEL[d.type]}</div>
     ${d.date_created ? `<div class="text-[9px] text-outline mt-0.5 font-mono">${d.date_created}</div>` : ''}
     <div class="text-[9px] text-outline mt-1">${cnt} connection${cnt!==1?'s':''}</div>
+    ${trust ? `<div class="text-[9px] mt-1 font-mono" style="color:${trustColor(trust.composite)}">⬡ trust ${Math.round(trust.composite*100)}/100 · ${trustLabel(trust.composite)}</div>` : ''}
     ${d.tags?.length ? `<div class="text-[8px] text-outline mt-1 opacity-60">${d.tags.slice(0,5).join(' · ')}${d.tags.length>5?` +${d.tags.length-5}`:''}</div>` : ''}`;
   tip.classList.remove('hidden');
 }
@@ -890,6 +1023,21 @@ function resetView() {
     if (linkSel) linkSel.style('opacity', l => Math.min(0.15+l.weight*0.08,0.55));
   } else {
     renderTimeline();
+  }
+}
+
+// ── Trust overlay toggle ──────────────────────────────────────────────────────
+function toggleTrustOverlay() {
+  showTrustOverlay = !showTrustOverlay;
+  const btn = document.getElementById('btn-trust');
+  btn.style.opacity = showTrustOverlay ? '1' : '0.3';
+  if (nodeSel) {
+    nodeSel.selectAll('.trust-ring')
+      .attr('stroke-opacity', d => {
+        if (!showTrustOverlay) return 0;
+        const t = gTrustScores[d.id];
+        return t ? 0.65 : 0;
+      });
   }
 }
 

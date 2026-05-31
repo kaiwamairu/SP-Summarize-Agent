@@ -133,6 +133,54 @@
     </div>
   </div>
 
+  <!-- ── Vault Audit Panel (M6) ─────────────────────────────────────── -->
+  <section class="mt-xl border border-outline-variant bg-surface-container-lowest overflow-hidden">
+    <div class="flex items-center justify-between bg-surface-container-highest px-md py-1 border-b border-outline-variant">
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] font-bold text-on-surface tracking-widest uppercase">Vault_Audit :: M6</span>
+        <span class="text-[9px] text-outline" id="audit-status-badge"></span>
+      </div>
+      <div class="flex gap-1">
+        <button onclick="runAuditStep('trust')" title="Rule-based trust scoring (no AI cost)"
+          class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline hover:border-primary hover:text-primary transition-colors uppercase">
+          ⬡ Trust
+        </button>
+        <button onclick="runAuditStep('extract')" title="AI claim extraction (token cost)"
+          class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline hover:border-primary hover:text-primary transition-colors uppercase">
+          ◈ Claims
+        </button>
+        <button onclick="runAuditStep('contradict')" title="AI contradiction detection (token cost)"
+          class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline hover:border-primary hover:text-primary transition-colors uppercase">
+          ⚡ Contradictions
+        </button>
+        <button onclick="runFullAudit()" title="Run full audit pipeline (trust + claims + contradictions)"
+          class="text-[9px] px-2 py-0.5 border border-primary text-primary hover:bg-primary hover:text-on-primary transition-colors uppercase font-bold">
+          ▶ Full Audit
+        </button>
+      </div>
+    </div>
+    <!-- Stats row -->
+    <div class="grid grid-cols-3 divide-x divide-outline-variant border-b border-outline-variant">
+      <div class="px-md py-sm text-center">
+        <div class="text-[9px] text-outline uppercase tracking-widest mb-0.5">Trust Scored</div>
+        <div class="text-[16px] font-bold" id="audit-trust-count" style="color:#4ade80">—</div>
+      </div>
+      <div class="px-md py-sm text-center">
+        <div class="text-[9px] text-outline uppercase tracking-widest mb-0.5">Claims Extracted</div>
+        <div class="text-[16px] font-bold text-primary" id="audit-claims-count">—</div>
+      </div>
+      <div class="px-md py-sm text-center">
+        <div class="text-[9px] text-outline uppercase tracking-widest mb-0.5">Contradictions</div>
+        <div class="text-[16px] font-bold" id="audit-contradict-count" style="color:#f6bd58">—</div>
+      </div>
+    </div>
+    <!-- Dry-run toggle -->
+    <div class="px-md py-1 flex items-center gap-2 border-b border-outline-variant">
+      <input type="checkbox" id="audit-dry-run" class="accent-primary"/>
+      <label for="audit-dry-run" class="text-[10px] text-outline uppercase cursor-pointer">Dry_Run (no writes)</label>
+    </div>
+  </section>
+
   <!-- Syslog Monitor -->
   <section class="mt-xl border border-outline-variant bg-surface-container-lowest overflow-hidden">
     <div class="flex items-center justify-between bg-surface-container-highest px-md py-1 border-b border-outline-variant">
@@ -310,6 +358,8 @@ function connectWS() {
       const msg = JSON.parse(e.data);
       if (msg.type === 'log') appendLog(msg.message);
       else if (msg.type === 'job_update') handleJobUpdate(msg.job);
+      else if (['audit_done','extract_done','contradict_done','full_audit_done','retag_done'].includes(msg.type))
+        handleAuditWsEvent(msg);
     } catch (_) {
       appendLog(e.data); // plain-text fallback
     }
@@ -568,6 +618,106 @@ function openSettings() {
   appendLog('[INFO] Settings drawer is always visible on the right panel.');
 }
 
+// ── Vault Audit (M6) ──────────────────────────────────────────────
+
+async function runAuditStep(step) {
+  const dryRun = document.getElementById('audit-dry-run').checked;
+  const platform = getGlobalPlatform();
+  const model = getGlobalModel();
+  const badge = document.getElementById('audit-status-badge');
+
+  const endpoints = {
+    trust:      { url: '/api/vault/audit',     body: { dry_run: dryRun } },
+    extract:    { url: '/api/vault/extract',   body: { dry_run: dryRun, platform, model } },
+    contradict: { url: '/api/vault/contradict',body: { dry_run: dryRun, platform, model } },
+  };
+
+  const { url, body } = endpoints[step];
+  badge.textContent = `Running ${step}…`;
+  badge.style.color = '#f6bd58';
+
+  try {
+    const r = await fetch(`${API}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    appendLog(`[AUDIT] ${step.toUpperCase()} started — ${JSON.stringify(d)}`);
+  } catch (err) {
+    appendLog(`[AUDIT] [ERR] ${err.message}`);
+    badge.textContent = 'Error';
+    badge.style.color = '#f87171';
+  }
+}
+
+async function runFullAudit() {
+  const dryRun = document.getElementById('audit-dry-run').checked;
+  const platform = getGlobalPlatform();
+  const model = getGlobalModel();
+  const badge = document.getElementById('audit-status-badge');
+
+  badge.textContent = 'Running full audit…';
+  badge.style.color = '#f6bd58';
+
+  try {
+    const r = await fetch(`${API}/api/vault/full-audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dry_run: dryRun, platform, model,
+        run_trust: true, run_extract: true, run_contradict: true,
+      }),
+    });
+    const d = await r.json();
+    appendLog(`[AUDIT] Full audit started — ${JSON.stringify(d.steps)}`);
+  } catch (err) {
+    appendLog(`[AUDIT] [ERR] ${err.message}`);
+    badge.textContent = 'Error';
+    badge.style.color = '#f87171';
+  }
+}
+
+async function loadAuditStats() {
+  try {
+    const r = await fetch(`${API}/api/vault/trust`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('audit-trust-count');
+    if (el) el.textContent = d.count ?? '—';
+  } catch (_) {}
+}
+
+// Handle WS events for audit completion
+function handleAuditWsEvent(data) {
+  const badge = document.getElementById('audit-status-badge');
+  if (data.type === 'audit_done') {
+    const r = data.results || {};
+    badge.textContent = `Trust done: ${r.updated ?? 0} updated`;
+    badge.style.color = '#4ade80';
+    loadAuditStats();
+  } else if (data.type === 'extract_done') {
+    const r = data.results || {};
+    const el = document.getElementById('audit-claims-count');
+    if (el) el.textContent = r.extracted ?? '—';
+    badge.textContent = `Extract done: ${r.extracted ?? 0}`;
+    badge.style.color = '#bac3ff';
+  } else if (data.type === 'contradict_done') {
+    const r = data.results || {};
+    const el = document.getElementById('audit-contradict-count');
+    if (el) {
+      el.textContent = r.found ?? '—';
+      el.style.color = (r.found > 0) ? '#f87171' : '#4ade80';
+    }
+    badge.textContent = `Contradict done: ${r.found ?? 0} found`;
+    badge.style.color = '#bac3ff';
+  } else if (data.type === 'full_audit_done') {
+    badge.textContent = 'Full audit complete';
+    badge.style.color = '#4ade80';
+    loadAuditStats();
+  }
+}
+
 // ── Load settings from backend ─────────────────────────────────────
 
 async function loadSettings() {
@@ -592,6 +742,7 @@ setInterval(() => {
 connectWS();
 loadSettings();
 loadJobs();
+loadAuditStats();
 jobPollInterval = setInterval(loadJobs, 30000); // 30 s fallback — WS push is primary
 
 // Fetch graph stats once to show node count badge in sidebar

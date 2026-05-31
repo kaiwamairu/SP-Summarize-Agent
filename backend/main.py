@@ -19,6 +19,10 @@ from .writer import write_files
 from .logger import session_log
 from .graph import build_graph
 from .retagger import retag_vault
+from .scorer import score_vault
+from .extractor import extract_vault, load_claims
+from .contradictor import detect_vault, load_contradictions
+from .auditor import run_full_audit
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
@@ -180,6 +184,225 @@ async def _run_retag(platform: str, model: str, *, dry_run: bool):
         await _broadcast({"type": "retag_done", "results": results})
     except Exception as exc:
         await _emit_log(f"RETAG :: [ERROR] {type(exc).__name__}: {exc}")
+
+
+# ── Vault Audit (Trust Score) ─────────────────────────────────────────────────
+
+class AuditRequest(BaseModel):
+    dry_run: bool = False
+
+
+@app.post("/api/vault/audit")
+async def vault_audit(req: AuditRequest):
+    """Score trust for all vault notes. Rule-based only — no AI cost."""
+    asyncio.create_task(_run_audit(dry_run=req.dry_run))
+    return {"status": "started", "dry_run": req.dry_run}
+
+
+async def _run_audit(*, dry_run: bool):
+    await _emit_log(f"AUDIT :: Starting trust score run (dry_run={dry_run})")
+    try:
+        results = await score_vault(dry_run=dry_run, emit_log=_emit_log)
+        await _emit_log(
+            f"AUDIT :: Done — {results['updated']} scored, "
+            f"{results['skipped']} skipped, {results['errors']} errors"
+        )
+        await _broadcast({"type": "audit_done", "results": results})
+    except Exception as exc:
+        await _emit_log(f"AUDIT :: [ERROR] {type(exc).__name__}: {exc}")
+
+
+# ── Claim Extraction (M6b) ────────────────────────────────────────────────────
+
+class ExtractRequest(BaseModel):
+    dry_run:  bool       = False
+    platform: str        = settings.default_platform
+    model:    str | None = None
+
+
+@app.post("/api/vault/extract")
+async def vault_extract(req: ExtractRequest):
+    """
+    Run AI claim extraction over all vault notes (incremental).
+    Each note gets a sidecar .claims.json. Token cost: one small AI call per dirty note.
+    """
+    model = req.model or settings.platforms[req.platform]["model"]
+    asyncio.create_task(_run_extract(req.platform, model, dry_run=req.dry_run))
+    return {"status": "started", "platform": req.platform, "model": model, "dry_run": req.dry_run}
+
+
+async def _run_extract(platform: str, model: str, *, dry_run: bool):
+    await _emit_log(
+        f"EXTRACT :: Starting claim extraction "
+        f"(platform={platform} model={model} dry_run={dry_run})"
+    )
+    try:
+        results = await extract_vault(
+            platform, model, dry_run=dry_run, emit_log=_emit_log
+        )
+        await _emit_log(
+            f"EXTRACT :: Done -- {results['extracted']} extracted, "
+            f"{results['skipped']} skipped, {results['errors']} errors"
+        )
+        await _broadcast({"type": "extract_done", "results": results})
+    except Exception as exc:
+        await _emit_log(f"EXTRACT :: [ERROR] {type(exc).__name__}: {exc}")
+
+
+@app.get("/api/vault/claims/{note_stem}")
+async def get_note_claims(note_stem: str):
+    """Return the .claims.json sidecar for a specific note by stem name."""
+    data = load_claims(note_stem)
+    if data is None:
+        return JSONResponse(status_code=404, content={"error": "Claims not found — run /api/vault/extract first"})
+    return JSONResponse(content=data)
+
+
+# ── Contradiction Detection (M6c) ─────────────────────────────────────────────
+
+class ContradictRequest(BaseModel):
+    dry_run:  bool       = False
+    platform: str        = settings.default_platform
+    model:    str | None = None
+
+
+@app.post("/api/vault/contradict")
+async def vault_contradict(req: ContradictRequest):
+    """
+    Compare claims across same-tag note groups and detect contradictions.
+    Capped at 40 pairs per run. Token cost: one AI call per dirty pair.
+    """
+    model = req.model or settings.platforms[req.platform]["model"]
+    asyncio.create_task(_run_contradict(req.platform, model, dry_run=req.dry_run))
+    return {"status": "started", "platform": req.platform, "model": model, "dry_run": req.dry_run}
+
+
+async def _run_contradict(platform: str, model: str, *, dry_run: bool):
+    await _emit_log(
+        f"CONTRADICT :: Starting contradiction detection "
+        f"(platform={platform} model={model} dry_run={dry_run})"
+    )
+    try:
+        results = await detect_vault(
+            platform, model, dry_run=dry_run, emit_log=_emit_log
+        )
+        await _emit_log(
+            f"CONTRADICT :: Done -- {results['checked']} checked, "
+            f"{results['found']} contradiction(s), {results['errors']} errors"
+        )
+        await _broadcast({"type": "contradict_done", "results": results})
+    except Exception as exc:
+        await _emit_log(f"CONTRADICT :: [ERROR] {type(exc).__name__}: {exc}")
+
+
+@app.get("/api/vault/contradictions/{note_stem}")
+async def get_note_contradictions(note_stem: str):
+    """Return contradiction sidecar for a specific note."""
+    data = load_contradictions(note_stem)
+    if data is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "No contradiction data — run /api/vault/contradict first"},
+        )
+    return JSONResponse(content=data)
+
+
+@app.get("/api/vault/trust")
+async def get_trust_scores():
+    """
+    Return trust scores for every vault note that has been scored.
+    Fast — just reads frontmatter, no AI.
+    """
+    import re as _re
+    import yaml as _yaml
+
+    vault = settings.vault_path
+    folder_map = {"00-MOCs", "10-Atomic-Notes", "20-Papers", "30-Videos", "40-Repos"}
+    scores: dict[str, dict] = {}
+
+    for path in sorted(vault.rglob("*.md")):
+        if path.parent.name not in folder_map:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            m = _re.match(r"^---\s*\n(.*?)\n---", text, _re.DOTALL)
+            if not m:
+                continue
+            fm = _yaml.safe_load(m.group(1)) or {}
+            trust = fm.get("trust")
+            if trust:
+                scores[path.stem] = trust
+        except Exception:
+            continue
+
+    return JSONResponse(content={"scores": scores, "count": len(scores)})
+
+
+# ── Full Audit Pipeline (M6d) ─────────────────────────────────────────────────
+
+class FullAuditRequest(BaseModel):
+    run_trust:      bool       = True
+    run_extract:    bool       = True
+    run_contradict: bool       = True
+    dry_run:        bool       = False
+    platform:       str        = settings.default_platform
+    model:          str | None = None
+
+
+@app.post("/api/vault/full-audit")
+async def vault_full_audit(req: FullAuditRequest):
+    """
+    Run the complete M6 audit pipeline:
+      1. Trust Score (rule-based)
+      2. Claim Extraction (AI per dirty note)
+      3. Contradiction Detection (AI per dirty pair)
+    Each step is individually togglable via flags.
+    """
+    model = req.model or settings.platforms[req.platform]["model"]
+    asyncio.create_task(
+        _run_full_audit(
+            req.platform, model,
+            run_trust=req.run_trust,
+            run_extract=req.run_extract,
+            run_contradict=req.run_contradict,
+            dry_run=req.dry_run,
+        )
+    )
+    return {
+        "status": "started",
+        "platform": req.platform,
+        "model": model,
+        "steps": {
+            "trust":      req.run_trust,
+            "extract":    req.run_extract,
+            "contradict": req.run_contradict,
+        },
+        "dry_run": req.dry_run,
+    }
+
+
+async def _run_full_audit(
+    platform: str,
+    model: str,
+    *,
+    run_trust: bool,
+    run_extract: bool,
+    run_contradict: bool,
+    dry_run: bool,
+):
+    await _emit_log(f"AUDIT_FULL :: Pipeline starting (platform={platform} model={model})")
+    try:
+        summary = await run_full_audit(
+            platform, model,
+            run_trust=run_trust,
+            run_extract=run_extract,
+            run_contradict=run_contradict,
+            dry_run=dry_run,
+            emit_log=_emit_log,
+        )
+        await _broadcast({"type": "full_audit_done", "summary": summary})
+    except Exception as exc:
+        await _emit_log(f"AUDIT_FULL :: [CRITICAL] {type(exc).__name__}: {exc}")
 
 
 @app.post("/api/jobs/{job_id}/retry")
