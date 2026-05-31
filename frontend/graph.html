@@ -264,6 +264,7 @@ let minWeight    = 1;
 let searchQuery  = '';
 let currentView  = 'graph';   // 'graph' | 'timeline'
 let selectedNode = null;       // currently selected node (from gNodes)
+let readerOpen   = false;      // true while the 520px note reader is visible
 let navStack     = [];         // history for ← → navigation
 let navIdx       = -1;
 
@@ -485,6 +486,24 @@ function selectNode(node, links, pushHistory = false) {
 
   // Sync timeline selection if visible
   if (currentView === 'timeline') syncTimelineSelection(node.id);
+
+  // If reader is open, follow the new node automatically
+  if (readerOpen) {
+    if (node.file) {
+      openReader(node.file, node.title, C[node.type] || '#bac3ff');
+    } else {
+      // Node has no vault file — show a placeholder inside the open reader
+      const body = document.getElementById('reader-body');
+      const titleEl = document.getElementById('reader-title');
+      titleEl.textContent = node.title;
+      titleEl.style.color = C[node.type] || '#bac3ff';
+      document.getElementById('obsidian-link').removeAttribute('href');
+      body.innerHTML = `<div class="text-center mt-16 opacity-30 space-y-2">
+        <div class="text-[22px]">${ICON[node.type] || '◎'}</div>
+        <div class="text-[10px] text-outline uppercase tracking-widest">No vault file<br>for this node</div>
+      </div>`;
+    }
+  }
 }
 
 // ── Detail panel ──────────────────────────────────────────────────────────────
@@ -916,6 +935,7 @@ async function openReader(file, title, color) {
   body.innerHTML = `<div class="text-[10px] text-outline text-center mt-10 animate-pulse">Loading…</div>`;
   reader.style.width   = '520px';
   reader.style.overflow = 'visible';
+  readerOpen = true;
 
   // Shrink canvas
   document.getElementById('graph-container').style.right  = '520px';
@@ -934,10 +954,11 @@ async function openReader(file, title, color) {
 }
 
 function closeReader() {
-  document.getElementById('note-reader').style.width   = '0';
+  document.getElementById('note-reader').style.width    = '0';
   document.getElementById('note-reader').style.overflow = 'hidden';
   document.getElementById('graph-container').style.right = '264px';
   document.getElementById('timeline-view').style.right   = '264px';
+  readerOpen = false;
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
