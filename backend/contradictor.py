@@ -518,3 +518,45 @@ def load_contradictions(note_stem: str) -> dict[str, Any] | None:
         except Exception:
             return None
     return None
+
+
+def scan_all_contradictions() -> dict[str, Any]:
+    """Walk vault for all *.contradictions.json sidecars and return a deduplicated edge list.
+
+    Each pair (note_a, note_b) is emitted once, with the worst severity across all
+    contradictions for that pair and the total contradiction count.
+    """
+    vault = settings.vault_path
+    # key: frozenset(note_a, note_b) -> list of contradiction entries (from canonical side only)
+    pair_data: dict[frozenset, list[dict]] = {}
+
+    for sc_path in vault.rglob("*.contradictions.json"):
+        try:
+            data = json.loads(sc_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        note = data.get("note") or sc_path.stem.replace(".contradictions", "")
+        for entry in data.get("contradictions", []):
+            pair_note = entry.get("pair_note")
+            if not pair_note:
+                continue
+            key = frozenset([note, pair_note])
+            # Accumulate only from the alphabetically-first note's perspective
+            # so each pair is counted exactly once.
+            if note <= pair_note:
+                pair_data.setdefault(key, []).append(entry)
+
+    edges: list[dict] = []
+    for key, entries in pair_data.items():
+        pair = sorted(key)
+        note_a, note_b = pair[0], pair[1]
+        worst = max(entries, key=lambda e: _SEVERITY_ORDER.get(e.get("severity", "minor"), 0))
+        edges.append({
+            "note_a":   note_a,
+            "note_b":   note_b,
+            "severity": worst.get("severity", "minor"),
+            "count":    len(entries),
+        })
+
+    edges.sort(key=lambda e: _SEVERITY_ORDER.get(e["severity"], 0), reverse=True)
+    return {"edges": edges, "total": len(edges)}

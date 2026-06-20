@@ -111,6 +111,12 @@ tailwind.config = {
       style="color:#4ade80;border-color:#4ade8044">
       ⬡ Trust
     </button>
+    <!-- Contradiction edges toggle -->
+    <button id="btn-contradict" onclick="toggleContradictLayer()" title="Toggle contradiction edges"
+      class="text-[9px] px-3 py-1 border border-outline-variant uppercase tracking-wider transition-all"
+      style="color:#f87171;border-color:#f8717144;opacity:0.3">
+      ⚡ Contradictions
+    </button>
     <span class="text-[10px] text-outline" id="badge">—</span>
     <button onclick="reloadGraph()" title="Reload from vault"
       class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">↻ Reload</button>
@@ -307,7 +313,11 @@ const API_BASE = window.location.port === '5173' ? 'http://localhost:8000' : '';
 // ── Global state ──────────────────────────────────────────────────────────────
 let gNodes = [], gLinks = [], gTagIndex = {}, gStats = {};
 let gTrustScores = {};         // node.id (stem) -> trust obj from /api/vault/trust
+let gContradictEdges = [];     // [{note_a, note_b, severity, count}] from /api/vault/contradictions
+let gContradictCountById = {}; // node stem -> total contradiction count
 let showTrustOverlay = true;   // toggle trust rings on/off
+let showContradictLayer = false;
+let contradictLinkSel = null;
 let activeTypes  = new Set(Object.keys(C));
 let activeTagFilter = null;
 let minWeight    = 1;
@@ -326,9 +336,10 @@ let W = container.clientWidth, H = container.clientHeight;
 async function loadGraph() {
   document.getElementById('loading').style.display = 'flex';
   try {
-    const [graphResp, trustResp] = await Promise.all([
+    const [graphResp, trustResp, contradictResp] = await Promise.all([
       fetch(API_BASE + '/api/graph'),
       fetch(API_BASE + '/api/vault/trust').catch(() => null),
+      fetch(API_BASE + '/api/vault/contradictions').catch(() => null),
     ]);
     if (!graphResp.ok) throw new Error(`HTTP ${graphResp.status}`);
     const data = await graphResp.json();
@@ -341,6 +352,18 @@ async function loadGraph() {
     if (trustResp && trustResp.ok) {
       const td = await trustResp.json();
       gTrustScores = td.scores || {};
+    }
+
+    // Contradiction edges — optional
+    gContradictEdges = [];
+    gContradictCountById = {};
+    if (contradictResp && contradictResp.ok) {
+      const cd = await contradictResp.json();
+      gContradictEdges = cd.edges || [];
+      for (const e of gContradictEdges) {
+        gContradictCountById[e.note_a] = (gContradictCountById[e.note_a] || 0) + e.count;
+        gContradictCountById[e.note_b] = (gContradictCountById[e.note_b] || 0) + e.count;
+      }
     }
 
     initSidebar();
@@ -460,6 +483,23 @@ function initGraph() {
     .attr('stroke-width',   l => Math.min(0.5 + l.weight * 0.4, 3))
     .on('mouseover', onLinkHover).on('mousemove', onMove).on('mouseout', onOut);
 
+  // ── Contradiction edges layer ─────────────────────────────────────────────
+  const _SEV_STYLE = {
+    critical: { stroke: '#f87171', width: 2,   dasharray: '4,2' },
+    moderate: { stroke: '#fb923c', width: 1.5, dasharray: '3,2' },
+    minor:    { stroke: '#f6bd58', width: 1,   dasharray: '2,2' },
+  };
+  const validContradictEdges = gContradictEdges.filter(
+    e => nodeById.has(e.note_a) && nodeById.has(e.note_b)
+  );
+  contradictLinkSel = g.append('g').attr('class', 'contradict-links')
+    .selectAll('line').data(validContradictEdges).join('line')
+    .attr('stroke',         e => (_SEV_STYLE[e.severity] || _SEV_STYLE.minor).stroke)
+    .attr('stroke-width',   e => (_SEV_STYLE[e.severity] || _SEV_STYLE.minor).width)
+    .attr('stroke-dasharray', e => (_SEV_STYLE[e.severity] || _SEV_STYLE.minor).dasharray)
+    .attr('stroke-opacity', 0)   // hidden until toggled on
+    .on('mouseover', onContradictLinkHover).on('mousemove', onMove).on('mouseout', onOut);
+
   nodeSel = g.append('g').attr('class','nodes').selectAll('g')
     .data(nodes).join('g').style('cursor','pointer')
     .call(d3.drag()
@@ -529,6 +569,13 @@ function initGraph() {
     linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
            .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
     nodeSel.attr('transform', d=>`translate(${d.x||0},${d.y||0})`);
+    if (contradictLinkSel) {
+      contradictLinkSel
+        .attr('x1', e => (nodeById.get(e.note_a) || {}).x || 0)
+        .attr('y1', e => (nodeById.get(e.note_a) || {}).y || 0)
+        .attr('x2', e => (nodeById.get(e.note_b) || {}).x || 0)
+        .attr('y2', e => (nodeById.get(e.note_b) || {}).y || 0);
+    }
   }
 
   sim.stop();
@@ -928,12 +975,14 @@ function onHover(e, d) {
   const cnt = gLinks.filter(l=>
     (l.source===d.id||l.target===d.id) && l.weight>=minWeight).length;
   const trust = gTrustScores[d.id];
+  const contradictCnt = gContradictCountById[d.id] || 0;
   tip.innerHTML = `
     <div class="font-bold text-[12px] leading-tight" style="color:${C[d.type]}">${ICON[d.type]} ${d.title}</div>
     <div class="text-[9px] text-outline uppercase mt-0.5">${LABEL[d.type]}</div>
     ${d.date_created ? `<div class="text-[9px] text-outline mt-0.5 font-mono">${d.date_created}</div>` : ''}
     <div class="text-[9px] text-outline mt-1">${cnt} connection${cnt!==1?'s':''}</div>
     ${trust ? `<div class="text-[9px] mt-1 font-mono" style="color:${trustColor(trust.composite)}">⬡ trust ${Math.round(trust.composite*100)}/100 · ${trustLabel(trust.composite)}</div>` : ''}
+    ${contradictCnt ? `<div class="text-[9px] mt-1 font-mono" style="color:#f87171">⚡ ${contradictCnt} contradiction${contradictCnt!==1?'s':''}</div>` : ''}
     ${d.tags?.length ? `<div class="text-[8px] text-outline mt-1 opacity-60">${d.tags.slice(0,5).join(' · ')}${d.tags.length>5?` +${d.tags.length-5}`:''}</div>` : ''}`;
   tip.classList.remove('hidden');
 }
@@ -1039,6 +1088,30 @@ function toggleTrustOverlay() {
         return t ? 0.65 : 0;
       });
   }
+}
+
+// ── Contradiction layer toggle ────────────────────────────────────────────────
+function toggleContradictLayer() {
+  showContradictLayer = !showContradictLayer;
+  const btn = document.getElementById('btn-contradict');
+  btn.style.opacity = showContradictLayer ? '1' : '0.3';
+  if (contradictLinkSel) {
+    contradictLinkSel.attr('stroke-opacity', showContradictLayer ? 0.75 : 0);
+  }
+}
+
+const SEV_COLOR = { critical: '#f87171', moderate: '#fb923c', minor: '#f6bd58' };
+
+function onContradictLinkHover(e, edge) {
+  const nodeA = gNodes.find(n => n.id === edge.note_a);
+  const nodeB = gNodes.find(n => n.id === edge.note_b);
+  tip.innerHTML = `
+    <div class="text-[9px] font-bold" style="color:#f87171">⚡ Contradiction</div>
+    <div class="text-[9px] font-bold text-on-surface mt-1">${nodeA?.title || edge.note_a}</div>
+    <div class="text-[8px] text-outline my-0.5">⟷ ${edge.count} contradiction${edge.count!==1?'s':''}</div>
+    <div class="text-[9px] font-bold text-on-surface">${nodeB?.title || edge.note_b}</div>
+    <div class="text-[8px] mt-1" style="color:${SEV_COLOR[edge.severity]||'#f87171'}">${edge.severity}</div>`;
+  tip.classList.remove('hidden');
 }
 
 window.addEventListener('resize', () => {

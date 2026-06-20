@@ -21,7 +21,7 @@ from .graph import build_graph
 from .retagger import retag_vault
 from .scorer import score_vault
 from .extractor import extract_vault, load_claims
-from .contradictor import detect_vault, load_contradictions
+from .contradictor import detect_vault, load_contradictions, scan_all_contradictions
 from .auditor import run_full_audit
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -293,6 +293,16 @@ async def _run_contradict(platform: str, model: str, *, dry_run: bool):
         await _broadcast({"type": "contradict_done", "results": results})
     except Exception as exc:
         await _emit_log(f"CONTRADICT :: [ERROR] {type(exc).__name__}: {exc}")
+
+
+@app.get("/api/vault/contradictions")
+async def get_all_contradictions():
+    """Scan all contradiction sidecars in vault and return a deduplicated edge list for the graph overlay."""
+    try:
+        data = await asyncio.to_thread(scan_all_contradictions)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @app.get("/api/vault/contradictions/{note_stem}")
