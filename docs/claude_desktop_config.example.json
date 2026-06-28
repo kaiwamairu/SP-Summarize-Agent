@@ -1,0 +1,14 @@
+{
+  "_comment": "Merge the mcpServers block below into your real Claude Desktop config.",
+  "_location_windows": "%APPDATA%\\Claude\\claude_desktop_config.json",
+  "_location_path_expanded": "C:\\Users\\ryu25\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
+  "_note": "If the file already has other servers, add 'summarize-agent' inside the existing mcpServers object — do not overwrite the whole file. Restart Claude Desktop after editing.",
+
+  "mcpServers": {
+    "summarize-agent": {
+      "command": "C:\\Users\\ryu25\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+      "args": ["-m", "backend.mcp_server"],
+      "cwd": "D:\\VS_CODE_PROJECT\\SP_Summarize_Project"
+    }
+  }
+}
