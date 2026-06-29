@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "summarize-agent": {
-      "command": "C:\\Users\\ryu25\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+      "command": "D:\\VS_CODE_PROJECT\\SP_Summarize_Project\\.venv\\Scripts\\python.exe",
       "args": ["run_mcp_server.py"]
     }
   }
