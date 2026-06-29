@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Knowledge Graph — Summarize Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+  body { background:#050505; color:#bac3ff; font-family:'JetBrains Mono',monospace; overflow:hidden; }
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background:#0d0e13; }
+  ::-webkit-scrollbar-thumb { background:#333; border-radius:0; }
+  * { border-radius:0 !important; }
+  .scanline { width:100%; height:2px; background:rgba(186,195,255,0.015); position:fixed;
+              top:0; left:0; pointer-events:none; z-index:200; animation:scanline 8s linear infinite; }
+  @keyframes scanline { 0%{top:0} 100%{top:100%} }
+  #graph-svg { cursor:grab; display:block; }
+  #graph-svg:active { cursor:grabbing; }
+  .node-label { pointer-events:none; font-family:'JetBrains Mono',monospace; }
+  .tag-chip { display:inline-block; cursor:pointer; padding:1px 6px; font-size:9px;
+              border:1px solid; transition:opacity .15s; }
+  .tag-chip.inactive { opacity:0.2; }
+  /* Search input */
+  #search-input { outline:none; }
+  #search-input:focus { border-color:#bac3ff; }
+  /* Markdown renderer */
+  #reader-body h1,#reader-body h2,#reader-body h3 { color:#e3e1e9; font-weight:700; margin:1.2em 0 .4em; letter-spacing:.03em; }
+  #reader-body h1 { font-size:13px; border-bottom:1px solid #333; padding-bottom:.3em; }
+  #reader-body h2 { font-size:12px; }
+  #reader-body h3 { font-size:11px; color:#bac3ff; }
+  #reader-body p  { font-size:11px; line-height:1.7; color:#c6c5d3; margin:.5em 0; }
+  #reader-body ul,#reader-body ol { font-size:11px; color:#c6c5d3; padding-left:1.2em; margin:.4em 0; }
+  #reader-body li { margin:.2em 0; line-height:1.6; }
+  #reader-body code { font-family:'JetBrains Mono',monospace; font-size:10px;
+                       background:#161616; color:#bac3ff; padding:1px 4px; border:1px solid #333; }
+  #reader-body pre  { background:#0d0e13; border:1px solid #333; padding:10px 12px;
+                       overflow-x:auto; margin:.6em 0; }
+  #reader-body pre code { background:none; border:none; padding:0; font-size:10px; }
+  #reader-body blockquote { border-left:2px solid #454651; margin:.5em 0; padding:.3em .8em;
+                              color:#888; font-size:10px; }
+  #reader-body table { font-size:10px; border-collapse:collapse; width:100%; margin:.6em 0; }
+  #reader-body th,#reader-body td { border:1px solid #333; padding:3px 8px; text-align:left; }
+  #reader-body th { background:#161616; color:#bac3ff; }
+  #reader-body hr { border:none; border-top:1px solid #333; margin:1em 0; }
+  #reader-body a { color:#bac3ff; text-decoration:underline; text-underline-offset:2px; }
+  #reader-body .callout { border-left:2px solid #bac3ff; background:#0d0e13;
+                           padding:.4em .8em; margin:.5em 0; font-size:10px; }
+  .fm-block { background:#0d0e13; border:1px solid #333; padding:8px 12px; margin-bottom:12px;
+               font-size:9px; color:#666; font-family:'JetBrains Mono',monospace; }
+  .fm-block .fm-tag { color:#bac3ff; } .fm-block .fm-val { color:#f6bd58; }
+  /* Timeline */
+  .tl-card { border-left:2px solid; transition:all .15s; }
+  .tl-card.selected { background:#0d0e13; }
+  .tl-card.dimmed { opacity:0.25; }
+  #loading { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+             justify-content:center; background:#050505; z-index:300; gap:12px; }
+  #loading .spin { width:32px; height:32px; border:2px solid #333;
+                   border-top-color:#bac3ff; animation:spin .6s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+<script>
+tailwind.config = {
+  darkMode:"class",
+  theme:{ extend:{ colors:{
+    "surface":"#050505","primary":"#bac3ff",
+    "surface-container-low":"#0d0e13","surface-container-highest":"#242424",
+    "surface-container-high":"#161616","surface-container":"#0f0f0f",
+    "on-surface-variant":"#c6c5d3","on-surface":"#e3e1e9",
+    "outline-variant":"#333333","outline":"#454651",
+    "primary-container":"#5c6bc0","on-primary":"#15267b",
+    "tertiary":"#f6bd58","error":"#ffb4ab",
+  }}}
+}
+</script>
+</head>
+<body class="dark">
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="spin"></div>
+  <div class="text-[11px] text-outline uppercase tracking-widest">Scanning vault…</div>
+</div>
+
+<div class="scanline"></div>
+
+<!-- ── Header ── -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-12
+               bg-surface border-b border-outline-variant">
+  <div class="flex items-center gap-3">
+    <span class="text-sm font-bold text-primary tracking-tighter">SUMMARIZE_AGENT_v2.0</span>
+    <span class="text-[10px] text-outline font-mono opacity-50">// KNOWLEDGE_GRAPH</span>
+  </div>
+  <div class="flex items-center gap-3">
+    <!-- View toggle -->
+    <div class="flex items-center gap-0.5 border border-outline-variant">
+      <button id="btn-graph" onclick="setView('graph')"
+        class="text-[9px] px-3 py-1 uppercase tracking-wider transition-all text-primary bg-surface-container">
+        ◉ Graph
+      </button>
+      <button id="btn-timeline" onclick="setView('timeline')"
+        class="text-[9px] px-3 py-1 uppercase tracking-wider transition-all text-outline">
+        ≡ Timeline
+      </button>
+    </div>
+    <!-- Trust overlay toggle -->
+    <button id="btn-trust" onclick="toggleTrustOverlay()" title="Toggle trust score rings"
+      class="text-[9px] px-3 py-1 border border-outline-variant uppercase tracking-wider transition-all"
+      style="color:#4ade80;border-color:#4ade8044">
+      ⬡ Trust
+    </button>
+    <!-- Contradiction edges toggle -->
+    <button id="btn-contradict" onclick="toggleContradictLayer()" title="Toggle contradiction edges"
+      class="text-[9px] px-3 py-1 border border-outline-variant uppercase tracking-wider transition-all"
+      style="color:#f87171;border-color:#f8717144;opacity:0.3">
+      ⚡ Contradictions
+    </button>
+    <span class="text-[10px] text-outline" id="badge">—</span>
+    <button onclick="reloadGraph()" title="Reload from vault"
+      class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">↻ Reload</button>
+    <a href="/" class="text-[10px] text-outline hover:text-primary transition-colors uppercase tracking-wider">
+      ← Dashboard
+    </a>
+  </div>
+</header>
+
+<!-- ── Left Sidebar ── -->
+<aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-[224px] flex flex-col
+              bg-surface-container-low border-r border-outline-variant z-40 overflow-y-auto">
+
+  <!-- Search -->
+  <div class="p-3 border-b border-outline-variant">
+    <div class="relative">
+      <input id="search-input" type="text" placeholder="Search nodes, tags…"
+        class="w-full bg-surface text-[10px] px-2 py-1.5 border border-outline-variant
+               text-on-surface placeholder-outline font-mono transition-colors"
+        oninput="onSearch(this.value)"/>
+      <button id="search-clear" onclick="clearSearch()"
+        class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] text-outline
+               hover:text-primary transition-colors hidden">✕</button>
+    </div>
+    <div class="text-[9px] text-outline mt-1 h-3" id="search-count"></div>
+  </div>
+
+  <!-- Stats -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Vault_Stats</div>
+    <div id="stat-list" class="space-y-2"></div>
+  </div>
+
+  <!-- Trust legend -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-[9px] text-outline uppercase tracking-widest">Trust_Score</div>
+      <span class="text-[9px] text-outline" id="trust-coverage">—</span>
+    </div>
+    <div class="space-y-1.5">
+      <div class="flex items-center gap-2 text-[10px]">
+        <div class="w-2 h-2 border" style="background:#4ade8033;border-color:#4ade80"></div>
+        <span style="color:#4ade80">HIGH</span>
+        <span class="text-outline text-[9px]">≥ 0.75</span>
+        <span class="ml-auto text-[9px] text-outline" id="trust-cnt-high">—</span>
+      </div>
+      <div class="flex items-center gap-2 text-[10px]">
+        <div class="w-2 h-2 border" style="background:#f6bd5833;border-color:#f6bd58"></div>
+        <span style="color:#f6bd58">MID</span>
+        <span class="text-outline text-[9px]">0.50–0.74</span>
+        <span class="ml-auto text-[9px] text-outline" id="trust-cnt-mid">—</span>
+      </div>
+      <div class="flex items-center gap-2 text-[10px]">
+        <div class="w-2 h-2 border" style="background:#f8717133;border-color:#f87171"></div>
+        <span style="color:#f87171">LOW</span>
+        <span class="text-outline text-[9px]">< 0.50</span>
+        <span class="ml-auto text-[9px] text-outline" id="trust-cnt-low">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Node type filter -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Filter_Type</div>
+    <div class="space-y-1" id="type-filter-list"></div>
+  </div>
+
+  <!-- Tag filter -->
+  <div class="p-4 border-b border-outline-variant">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-[9px] text-outline uppercase tracking-widest">Filter_Tags</div>
+      <button onclick="clearTagFilter()" class="text-[9px] text-outline hover:text-primary">clear</button>
+    </div>
+    <div id="tag-filter-box" class="flex flex-wrap gap-1"></div>
+  </div>
+
+  <!-- Min-weight slider (graph only) -->
+  <div class="p-4 border-b border-outline-variant" id="weight-section">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-[9px] text-outline uppercase tracking-widest">Min_Shared_Tags</div>
+      <span class="text-[10px] text-primary" id="weight-val">1</span>
+    </div>
+    <input id="weight-slider" type="range" min="1" max="5" value="1" step="1"
+      class="w-full h-0.5 bg-outline-variant accent-primary"
+      oninput="onWeightChange(+this.value)"/>
+  </div>
+
+  <!-- MOC clusters -->
+  <div class="p-4 flex-1">
+    <div class="text-[9px] text-outline uppercase tracking-widest mb-3">Clusters_MOC</div>
+    <div id="cluster-list" class="space-y-1"></div>
+  </div>
+
+  <!-- Reset -->
+  <div class="p-4 border-t border-outline-variant">
+    <button onclick="resetView()"
+      class="w-full text-[10px] py-1 border border-outline-variant text-outline
+             hover:border-primary hover:text-primary transition-colors uppercase">
+      Reset_View
+    </button>
+  </div>
+</aside>
+
+<!-- ── Graph Canvas ── -->
+<main class="fixed left-[224px] right-[264px] top-12 bottom-0 bg-surface overflow-hidden"
+      id="graph-container">
+  <svg id="graph-svg" width="100%" height="100%"></svg>
+  <div id="tooltip"
+    class="absolute hidden pointer-events-none z-50 bg-surface-container-highest
+           border border-outline-variant px-3 py-2 max-w-[240px]"></div>
+</main>
+
+<!-- ── Timeline View ── -->
+<div id="timeline-view"
+  class="fixed left-[224px] right-[264px] top-12 bottom-0 bg-surface overflow-y-auto"
+  style="display:none">
+  <div id="timeline-content" class="px-6 py-5 max-w-2xl mx-auto"></div>
+</div>
+
+<!-- ── Right Detail Panel ── -->
+<aside class="fixed right-0 top-12 h-[calc(100vh-48px)] w-[264px]
+              bg-surface-container-high border-l border-outline-variant z-40 flex flex-col">
+  <div class="px-4 py-3 border-b border-outline-variant bg-surface-container-highest flex items-center justify-between">
+    <div class="text-[9px] font-bold text-on-surface uppercase tracking-widest">Node_Detail</div>
+    <div id="detail-nav" class="flex items-center gap-1 hidden">
+      <button onclick="navHistory(-1)" title="Back" id="btn-back"
+        class="text-[11px] text-outline hover:text-primary px-1 disabled:opacity-20">←</button>
+      <button onclick="navHistory(1)" title="Forward" id="btn-fwd"
+        class="text-[11px] text-outline hover:text-primary px-1 disabled:opacity-20">→</button>
+    </div>
+  </div>
+  <div class="flex-1 p-4 overflow-y-auto" id="detail-panel">
+    <div class="text-center mt-10 space-y-2 opacity-30">
+      <div class="text-[28px]">◎</div>
+      <div class="text-[9px] text-outline uppercase tracking-widest">Click node<br>to inspect</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ── Full Note Reader ── -->
+<div id="note-reader"
+  class="fixed top-12 right-0 h-[calc(100vh-48px)] bg-surface border-l border-outline-variant z-50 flex flex-col
+         transition-all duration-300 ease-in-out"
+  style="width:0; overflow:hidden;">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-outline-variant bg-surface-container-highest shrink-0">
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="text-[9px] text-outline uppercase tracking-widest shrink-0">Full_Note</span>
+      <span class="text-[10px] text-primary font-bold truncate" id="reader-title"></span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a id="obsidian-link" href="#" title="Open in Obsidian"
+        class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline
+               hover:border-tertiary hover:text-tertiary transition-colors uppercase flex items-center gap-1">
+        <span style="font-size:11px">◈</span> Obsidian
+      </a>
+      <button onclick="closeReader()"
+        class="text-[9px] px-2 py-0.5 border border-outline-variant text-outline
+               hover:border-error hover:text-error transition-colors uppercase">✕</button>
+    </div>
+  </div>
+  <div class="flex-1 overflow-y-auto px-5 py-4" id="reader-body"></div>
+</div>
+
+<script>
+// ── Palette ───────────────────────────────────────────────────────────────────
+const C = { moc:'#f6bd58', atomic:'#c084fc', paper:'#bac3ff', video:'#fb923c', repo:'#4ade80' };
+const R = { moc:22, atomic:9, paper:8, video:8, repo:8 };
+const ICON  = { moc:'◉', atomic:'◆', paper:'◻', video:'▷', repo:'⌥' };
+const LABEL = { moc:'MOC', atomic:'Atomic', paper:'Paper', video:'Video', repo:'Repo' };
+const MONTH = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const TAG_COLOR = {
+  domain:'#bac3ff', method:'#fb923c', topic:'#34d399',
+  concept:'#c084fc', pattern:'#f6bd58', framework:'#60a5fa', language:'#94a3b8',
+};
+function tagColor(tag) { return TAG_COLOR[tag.split('/')[0]] || '#555'; }
+
+// ── Trust color ───────────────────────────────────────────────────────────────
+function trustColor(composite) {
+  if (composite === null || composite === undefined) return '#555';
+  if (composite >= 0.75) return '#4ade80';   // green  — high
+  if (composite >= 0.50) return '#f6bd58';   // yellow — mid
+  return '#f87171';                           // red    — low
+}
+function trustLabel(composite) {
+  if (composite === null || composite === undefined) return '—';
+  if (composite >= 0.75) return 'HIGH';
+  if (composite >= 0.50) return 'MID';
+  return 'LOW';
+}
+
+const API_BASE = window.location.port === '5173' ? 'http://localhost:8000' : '';
+
+// ── Global state ──────────────────────────────────────────────────────────────
+let gNodes = [], gLinks = [], gTagIndex = {}, gStats = {};
+let gTrustScores = {};         // node.id (stem) -> trust obj from /api/vault/trust
+let gContradictEdges = [];     // [{note_a, note_b, severity, count}] from /api/vault/contradictions
+let gContradictCountById = {}; // node stem -> total contradiction count
+let showTrustOverlay = true;   // toggle trust rings on/off
+let showContradictLayer = false;
+let contradictLinkSel = null;
+let activeTypes  = new Set(Object.keys(C));
+let activeTagFilter = null;
+let minWeight    = 1;
+let searchQuery  = '';
+let currentView  = 'graph';   // 'graph' | 'timeline'
+let selectedNode = null;       // currently selected node (from gNodes)
+let readerOpen   = false;      // true while the 520px note reader is visible
+let navStack     = [];         // history for ← → navigation
+let navIdx       = -1;
+
+let nodeSel, linkSel, sim, zoomBehavior;
+const container = document.getElementById('graph-container');
+let W = container.clientWidth, H = container.clientHeight;
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+async function loadGraph() {
+  document.getElementById('loading').style.display = 'flex';
+  try {
+    const [graphResp, trustResp, contradictResp] = await Promise.all([
+      fetch(API_BASE + '/api/graph'),
+      fetch(API_BASE + '/api/vault/trust').catch(() => null),
+      fetch(API_BASE + '/api/vault/contradictions').catch(() => null),
+    ]);
+    if (!graphResp.ok) throw new Error(`HTTP ${graphResp.status}`);
+    const data = await graphResp.json();
+    gNodes    = data.nodes    || [];
+    gLinks    = data.edges    || [];
+    gTagIndex = data.tag_index || {};
+    gStats    = data.stats    || {};
+
+    // Trust scores — optional (graceful if endpoint not available)
+    if (trustResp && trustResp.ok) {
+      const td = await trustResp.json();
+      gTrustScores = td.scores || {};
+    }
+
+    // Contradiction edges — optional
+    gContradictEdges = [];
+    gContradictCountById = {};
+    if (contradictResp && contradictResp.ok) {
+      const cd = await contradictResp.json();
+      gContradictEdges = cd.edges || [];
+      for (const e of gContradictEdges) {
+        gContradictCountById[e.note_a] = (gContradictCountById[e.note_a] || 0) + e.count;
+        gContradictCountById[e.note_b] = (gContradictCountById[e.note_b] || 0) + e.count;
+      }
+    }
+
+    initSidebar();
+    initGraph();
+  } catch(err) {
+    document.getElementById('loading').innerHTML =
+      `<div class="text-error text-[12px]">Failed: ${err.message}</div>
+       <button onclick="reloadGraph()" class="mt-4 px-4 py-1 border border-outline-variant text-outline hover:text-primary text-[10px] uppercase">Retry</button>`;
+    return;
+  }
+  document.getElementById('loading').style.display = 'none';
+}
+
+function reloadGraph() {
+  if (sim) sim.stop();
+  d3.select('#graph-svg').selectAll('*').remove();
+  navStack = []; navIdx = -1;
+  selectedNode = null;
+  loadGraph();
+}
+
+// ── Sidebar init ──────────────────────────────────────────────────────────────
+function initSidebar() {
+  const counts = gNodes.reduce((a, n) => { a[n.type] = (a[n.type]||0)+1; return a; }, {});
+  document.getElementById('badge').textContent =
+    `${gStats.node_count||gNodes.length} nodes · ${gStats.edge_count||gLinks.length} edges`;
+
+  document.getElementById('stat-list').innerHTML =
+    Object.entries(C).map(([type, color]) =>
+      `<div class="flex items-center justify-between text-[11px]">
+         <span class="text-on-surface-variant">${ICON[type]} ${LABEL[type]}</span>
+         <span class="font-bold" style="color:${color}">${counts[type]||0}</span>
+       </div>`
+    ).join('') +
+    `<div class="flex items-center justify-between text-[11px] pt-1 border-t border-outline-variant mt-1">
+       <span class="text-outline">Edges</span><span class="font-bold text-outline">${gStats.edge_count||gLinks.length}</span>
+     </div>
+     <div class="flex items-center justify-between text-[11px]">
+       <span class="text-outline">Unique Tags</span><span class="font-bold text-outline">${gStats.tag_count||Object.keys(gTagIndex).length}</span>
+     </div>`;
+
+  document.getElementById('type-filter-list').innerHTML =
+    Object.entries(C).map(([type, color]) =>
+      `<button id="f-${type}" onclick="toggleType('${type}')"
+         class="w-full flex items-center justify-between px-2 py-1 text-[11px] border transition-colors hover:bg-surface-container"
+         style="color:${color}; border-color:${color}33">
+         <span>${ICON[type]} ${type}</span>
+         <span class="text-[9px] opacity-50">${counts[type]||0}</span>
+       </button>`
+    ).join('');
+
+  const tagCounts = Object.entries(gTagIndex)
+    .map(([tag, ids]) => ({ tag, count: ids.length }))
+    .sort((a, b) => b.count - a.count).slice(0, 32);
+
+  document.getElementById('tag-filter-box').innerHTML = tagCounts.map(({ tag, count }) => {
+    const color = tagColor(tag);
+    const short = tag.includes('/') ? tag.split('/').slice(1).join('/') : tag;
+    return `<span class="tag-chip" id="chip-${CSS.escape(tag)}"
+              style="color:${color};border-color:${color}44"
+              title="${tag} (${count} nodes)"
+              onclick="toggleTagFilter('${tag}')">${short}</span>`;
+  }).join('');
+
+  document.getElementById('cluster-list').innerHTML =
+    gNodes.filter(n => n.type === 'moc').map(n =>
+      `<button onclick="focusNode('${n.id}')"
+         class="w-full text-left text-[10px] py-1 px-1 text-outline hover:text-tertiary transition-colors truncate"
+         title="${n.title}">◉ ${n.title}</button>`
+    ).join('') || '<div class="text-[10px] text-outline opacity-40">No MOCs</div>';
+
+  // Trust legend counts
+  updateTrustLegend();
+}
+
+function updateTrustLegend() {
+  const scored = Object.values(gTrustScores);
+  const total  = gNodes.length;
+  const hi  = scored.filter(t => t.composite >= 0.75).length;
+  const mid = scored.filter(t => t.composite >= 0.50 && t.composite < 0.75).length;
+  const lo  = scored.filter(t => t.composite < 0.50).length;
+  const cvg = scored.length;
+
+  document.getElementById('trust-coverage').textContent =
+    cvg ? `${cvg}/${total} scored` : 'Not scored yet';
+  document.getElementById('trust-cnt-high').textContent = hi || '—';
+  document.getElementById('trust-cnt-mid').textContent  = mid || '—';
+  document.getElementById('trust-cnt-low').textContent  = lo || '—';
+}
+
+// ── Graph init ────────────────────────────────────────────────────────────────
+function initGraph() {
+  const svg = d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+  W = container.clientWidth; H = container.clientHeight;
+
+  const g = svg.append('g');
+  zoomBehavior = d3.zoom().scaleExtent([0.05, 8])
+    .on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoomBehavior);
+
+  svg.append('defs').append('marker')
+    .attr('id','arrow').attr('viewBox','0 -4 8 8')
+    .attr('refX',12).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+    .append('path').attr('d','M0,-4L8,0L0,4').attr('fill','#444');
+
+  const nodes = gNodes.map(n => ({ ...n }));
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const links = gLinks
+    .filter(l => l.weight >= minWeight && nodeById.has(l.source) && nodeById.has(l.target))
+    .map(l => ({ ...l }));
+
+  linkSel = g.append('g').attr('class','links').selectAll('line')
+    .data(links).join('line')
+    .attr('stroke',         l => tagColor(l.shared_tags?.[0] || 'domain/other'))
+    .attr('stroke-opacity', l => Math.min(0.15 + l.weight * 0.08, 0.55))
+    .attr('stroke-width',   l => Math.min(0.5 + l.weight * 0.4, 3))
+    .on('mouseover', onLinkHover).on('mousemove', onMove).on('mouseout', onOut);
+
+  // ── Contradiction edges layer ─────────────────────────────────────────────
+  const _SEV_STYLE = {
+    critical: { stroke: '#f87171', width: 2,   dasharray: '4,2' },
+    moderate: { stroke: '#fb923c', width: 1.5, dasharray: '3,2' },
+    minor:    { stroke: '#f6bd58', width: 1,   dasharray: '2,2' },
+  };
+  const validContradictEdges = gContradictEdges.filter(
+    e => nodeById.has(e.note_a) && nodeById.has(e.note_b)
+  );
+  contradictLinkSel = g.append('g').attr('class', 'contradict-links')
+    .selectAll('line').data(validContradictEdges).join('line')
+    .attr('stroke',         e => (_SEV_STYLE[e.severity] || _SEV_STYLE.minor).stroke)
+    .attr('stroke-width',   e => (_SEV_STYLE[e.severity] || _SEV_STYLE.minor).width)
+    .attr('stroke-dasharray', e => (_SEV_STYLE[e.severity] || _SEV_STYLE.minor).dasharray)
+    .attr('stroke-opacity', 0)   // hidden until toggled on
+    .on('mouseover', onContradictLinkHover).on('mousemove', onMove).on('mouseout', onOut);
+
+  nodeSel = g.append('g').attr('class','nodes').selectAll('g')
+    .data(nodes).join('g').style('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('mouseover', onHover).on('mousemove', onMove).on('mouseout', onOut)
+    .on('click', (e, d) => {
+      e.stopPropagation();
+      // Use gNodes entry (has date_created etc.) but pass live sim links
+      const staticNode = gNodes.find(n => n.id === d.id) || d;
+      const liveLinks = [];
+      linkSel.each(function(l) { liveLinks.push(l); });
+      selectNode(staticNode, liveLinks, true);
+    });
+
+  // Glow ring for MOC
+  nodeSel.filter(d=>d.type==='moc')
+    .append('circle').attr('r', d=>R[d.type]+12)
+    .attr('fill','none').attr('stroke', d=>C[d.type])
+    .attr('stroke-opacity', 0.10).attr('stroke-width', 12);
+
+  nodeSel.append('circle')
+    .attr('r', d=>R[d.type])
+    .attr('fill', d=>C[d.type]).attr('fill-opacity', d=>d.type==='moc'?0.18:0.10)
+    .attr('stroke', d=>C[d.type]).attr('stroke-width', d=>d.type==='moc'?2:1.5);
+
+  // ── Trust score overlay ring (dashed, colored by composite) ──────────────
+  nodeSel.append('circle')
+    .attr('class', 'trust-ring')
+    .attr('r', d => R[d.type] + (d.type === 'moc' ? 8 : 5))
+    .attr('fill', 'none')
+    .attr('stroke-dasharray', '3,2')
+    .attr('stroke-width', 1.5)
+    .attr('stroke', d => {
+      const t = gTrustScores[d.id];
+      return t ? trustColor(t.composite) : '#555';
+    })
+    .attr('stroke-opacity', d => {
+      if (!showTrustOverlay) return 0;
+      const t = gTrustScores[d.id];
+      return t ? 0.65 : 0;
+    });
+
+  nodeSel.filter(d=>d.type==='moc')
+    .append('text').attr('class','node-label')
+    .attr('dy', d=>-R[d.type]-8).attr('text-anchor','middle')
+    .attr('fill', d=>C[d.type]).attr('font-size','10px').attr('font-weight','700').attr('letter-spacing','0.06em')
+    .text(d => d.title.length > 30 ? d.title.slice(0,28)+'…' : d.title.toUpperCase());
+
+  nodeSel.filter(d=>d.type==='atomic')
+    .append('text').attr('class','node-label')
+    .attr('dy', d=>-R[d.type]-5).attr('text-anchor','middle')
+    .attr('fill', d=>C[d.type]).attr('font-size','8px').attr('opacity',0.55)
+    .text(d => d.title.length > 26 ? d.title.slice(0,24)+'…' : d.title);
+
+  sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id)
+      .distance(l => Math.max(40, 110 - l.weight * 12))
+      .strength(l => Math.min(0.3 + l.weight * 0.1, 0.8)))
+    .force('charge', d3.forceManyBody()
+      .strength(d => d.type==='moc' ? -800 : d.type==='atomic' ? -150 : -200))
+    .force('center', d3.forceCenter(W/2, H/2).strength(0.03))
+    .force('collide', d3.forceCollide(d => R[d.type] + 18));
+
+  function applyPositions() {
+    linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+           .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    nodeSel.attr('transform', d=>`translate(${d.x||0},${d.y||0})`);
+    if (contradictLinkSel) {
+      contradictLinkSel
+        .attr('x1', e => (nodeById.get(e.note_a) || {}).x || 0)
+        .attr('y1', e => (nodeById.get(e.note_a) || {}).y || 0)
+        .attr('x2', e => (nodeById.get(e.note_b) || {}).x || 0)
+        .attr('y2', e => (nodeById.get(e.note_b) || {}).y || 0);
+    }
+  }
+
+  sim.stop();
+  for (let i = 0; i < 300; i++) sim.tick();
+  applyPositions();
+  sim.on('tick', applyPositions).alpha(0.05).restart();
+
+  // Background click → deselect
+  svg.on('click', () => {
+    selectedNode = null;
+    if (nodeSel) nodeSel.style('opacity', 1);
+    if (linkSel) linkSel.style('opacity', l => Math.min(0.15 + l.weight*0.08, 0.55));
+    document.getElementById('detail-panel').innerHTML = `
+      <div class="text-center mt-10 space-y-2 opacity-30">
+        <div class="text-[28px]">◎</div>
+        <div class="text-[9px] text-outline uppercase tracking-widest">Click node<br>to inspect</div>
+      </div>`;
+    document.getElementById('detail-nav').classList.add('hidden');
+    if (searchQuery) applySearch();
+    else if (activeTagFilter) applyFilters();
+  });
+
+  // Re-apply selection if something was selected before reload
+  if (selectedNode) {
+    const liveLinks = [];
+    // defer to let sim settle
+    setTimeout(() => {
+      linkSel.each(function(l) { liveLinks.push(l); });
+      showDetail(selectedNode, liveLinks);
+      highlightNode(selectedNode, liveLinks);
+    }, 50);
+  }
+}
+
+// ── Node selection (single source of truth) ───────────────────────────────────
+function selectNode(node, links, pushHistory = false) {
+  selectedNode = node;
+
+  // History stack for ← → navigation
+  if (pushHistory) {
+    // Trim forward history
+    navStack = navStack.slice(0, navIdx + 1);
+    navStack.push(node.id);
+    navIdx = navStack.length - 1;
+  }
+  updateNavButtons();
+
+  showDetail(node, links);
+  highlightNode(node, links);
+
+  // Sync timeline selection if visible
+  if (currentView === 'timeline') syncTimelineSelection(node.id);
+
+  // If reader is open, follow the new node automatically
+  if (readerOpen) {
+    if (node.file) {
+      openReader(node.file, node.title, C[node.type] || '#bac3ff');
+    } else {
+      // Node has no vault file — show a placeholder inside the open reader
+      const body = document.getElementById('reader-body');
+      const titleEl = document.getElementById('reader-title');
+      titleEl.textContent = node.title;
+      titleEl.style.color = C[node.type] || '#bac3ff';
+      document.getElementById('obsidian-link').removeAttribute('href');
+      body.innerHTML = `<div class="text-center mt-16 opacity-30 space-y-2">
+        <div class="text-[22px]">${ICON[node.type] || '◎'}</div>
+        <div class="text-[10px] text-outline uppercase tracking-widest">No vault file<br>for this node</div>
+      </div>`;
+    }
+  }
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+function showDetail(d, links) {
+  const color = C[d.type] || '#888';
+  const conns = (links || []).reduce((acc, l) => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    if (sId === d.id) acc.push({ id:tId, weight:l.weight, tags:l.shared_tags });
+    else if (tId === d.id) acc.push({ id:sId, weight:l.weight, tags:l.shared_tags });
+    return acc;
+  }, []).sort((a,b) => b.weight - a.weight);
+
+  document.getElementById('detail-nav').classList.remove('hidden');
+  document.getElementById('detail-panel').innerHTML = `
+    <div class="border-l-2 pl-3 mb-4" style="border-color:${color}">
+      <div class="text-[9px] uppercase mb-1" style="color:${color}">${ICON[d.type]} ${LABEL[d.type]}</div>
+      <div class="text-[13px] font-bold text-on-surface leading-snug">${d.title}</div>
+      ${d.date_created ? `<div class="text-[9px] text-outline mt-1 font-mono">${d.date_created}</div>` : ''}
+    </div>
+
+    ${d.snippet ? `
+    <div class="mb-4 text-[10px] text-on-surface-variant leading-relaxed opacity-70 border-l border-outline-variant pl-2">
+      ${d.snippet.slice(0,180)}${d.snippet.length>180?'…':''}
+    </div>` : ''}
+
+    ${d.tags?.length ? `
+    <div class="mb-4">
+      <div class="text-[9px] text-outline uppercase mb-2 tracking-widest">Tags (${d.tags.length})</div>
+      <div class="flex flex-wrap gap-1">
+        ${d.tags.map(t=>`<span class="tag-chip" style="color:${tagColor(t)};border-color:${tagColor(t)}44"
+          onclick="toggleTagFilter('${t}')">${t}</span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    ${(() => {
+      const t = gTrustScores[d.id];
+      if (!t) return '';
+      const pct = v => Math.round((v||0)*100);
+      const axes = ['credibility','recency','methodology','specificity'];
+      return `
+      <div class="mb-4 border border-outline-variant/30 p-3 bg-surface-container/40">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[9px] text-outline uppercase tracking-widest">Trust_Score</div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[15px] font-bold" style="color:${trustColor(t.composite)}">${pct(t.composite)}</span>
+            <span class="text-[8px]" style="color:${trustColor(t.composite)}">${trustLabel(t.composite)}</span>
+          </div>
+        </div>
+        ${axes.map(axis => `
+          <div class="mb-1.5">
+            <div class="flex justify-between text-[8px] mb-0.5">
+              <span class="text-outline capitalize">${axis}</span>
+              <span style="color:${trustColor(t[axis]||0)}">${pct(t[axis])}</span>
+            </div>
+            <div class="h-px bg-outline-variant/30 w-full relative">
+              <div class="h-full absolute left-0 top-0 transition-all"
+                   style="width:${pct(t[axis])}%;background:${trustColor(t[axis]||0)};opacity:0.7"></div>
+            </div>
+          </div>`).join('')}
+        ${t.last_analyzed ? `<div class="text-[8px] text-outline mt-2 opacity-50">Last scored: ${t.last_analyzed}</div>` : ''}
+      </div>`;
+    })()}
+
+    ${d.file ? `
+    <div class="mb-4">
+      <div class="text-[9px] text-outline uppercase mb-1 tracking-widest">Vault File</div>
+      <div class="text-[9px] text-primary font-mono break-all leading-snug opacity-80">${d.file}</div>
+      <button onclick="openReader('${d.file}', '${d.title.replace(/'/g,"\\'")}', '${color}')"
+        class="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 border text-[10px] uppercase font-bold
+               transition-colors hover:bg-surface-container"
+        style="color:${color}; border-color:${color}55">
+        <span style="font-size:13px">◈</span> Read Full Note
+      </button>
+    </div>` : ''}
+
+    <div>
+      <div class="text-[9px] text-outline uppercase mb-2 tracking-widest">Connections (${conns.length})</div>
+      <div class="space-y-0">
+        ${conns.slice(0,20).map(({id, weight, tags}) => {
+          const n = gNodes.find(x=>x.id===id);
+          if(!n) return '';
+          const nColor = C[n.type]||'#888';
+          const sharedStr = (tags||[]).slice(0,3).join(', ') + (tags?.length>3?` +${tags.length-3}`:'');
+          return `<div class="flex items-start gap-2 py-1.5 border-b border-outline-variant/20 cursor-pointer
+                               hover:bg-surface-container/50 group"
+                       onclick="focusNode('${n.id}')">
+            <span class="text-[12px] mt-0.5 shrink-0" style="color:${nColor}">${ICON[n.type]}</span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[10px] font-bold truncate group-hover:opacity-100 transition-opacity"
+                   style="color:${nColor}">${n.title}</div>
+              <div class="text-[8px] text-outline">${weight} shared · ${sharedStr}</div>
+            </div>
+          </div>`;
+        }).join('')}
+        ${conns.length>20?`<div class="text-[9px] text-outline text-center pt-2">+${conns.length-20} more</div>`:''}
+      </div>
+    </div>
+  `;
+}
+
+function highlightNode(d, links) {
+  if (!nodeSel || !linkSel) return;
+  const id = d.id;
+  const connected = new Set([id]);
+  (links||[]).forEach(l => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    if (sId===id||tId===id) { connected.add(sId); connected.add(tId); }
+  });
+  nodeSel.style('opacity', n => connected.has(n.id) ? 1 : 0.08);
+  linkSel.style('opacity', l => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    return (sId===id||tId===id) ? Math.min(0.4+l.weight*0.15, 0.9) : 0.02;
+  });
+}
+
+// ── Nav history ← → ──────────────────────────────────────────────────────────
+function updateNavButtons() {
+  document.getElementById('btn-back').style.opacity = navIdx > 0 ? '1' : '0.2';
+  document.getElementById('btn-fwd').style.opacity  = navIdx < navStack.length-1 ? '1' : '0.2';
+}
+
+function navHistory(dir) {
+  const next = navIdx + dir;
+  if (next < 0 || next >= navStack.length) return;
+  navIdx = next;
+  updateNavButtons();
+  focusNode(navStack[navIdx], false); // don't push history
+}
+
+// ── Focus node (from sidebar / connection clicks) ─────────────────────────────
+function focusNode(id, pushHistory = true) {
+  const node = gNodes.find(n => n.id === id);
+  if (!node) return;
+
+  // Collect live links from simulation
+  const liveLinks = [];
+  if (linkSel) linkSel.each(function(l) { liveLinks.push(l); });
+
+  selectNode(node, liveLinks, pushHistory);
+
+  // Pan+zoom to node in graph view
+  if (currentView === 'graph' && nodeSel) {
+    let pos = null;
+    nodeSel.each(function(d) { if (d.id === id) pos = { x: d.x, y: d.y }; });
+    if (pos) {
+      const scale = 1.8;
+      d3.select('#graph-svg').transition().duration(600)
+        .call(zoomBehavior.transform, d3.zoomIdentity
+          .translate(W/2 - scale * pos.x, H/2 - scale * pos.y).scale(scale));
+    }
+  }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function onSearch(query) {
+  searchQuery = query.trim().toLowerCase();
+  document.getElementById('search-clear').classList.toggle('hidden', !searchQuery);
+  if (searchQuery) applySearch();
+  else { document.getElementById('search-count').textContent = ''; applyFilters(); }
+  if (currentView === 'timeline') renderTimeline();
+}
+
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  onSearch('');
+}
+
+function applySearch() {
+  if (!searchQuery) return;
+  const matching = new Set(
+    gNodes.filter(n =>
+      n.title.toLowerCase().includes(searchQuery) ||
+      (n.tags||[]).some(t => t.toLowerCase().includes(searchQuery)) ||
+      (n.snippet||'').toLowerCase().includes(searchQuery)
+    ).map(n => n.id)
+  );
+  document.getElementById('search-count').textContent =
+    `${matching.size} match${matching.size !== 1 ? 'es' : ''}`;
+
+  if (nodeSel) nodeSel.style('opacity', n => matching.has(n.id) ? 1 : 0.05);
+  if (linkSel) linkSel.style('opacity', l => {
+    const sId = typeof l.source==='object' ? l.source.id : l.source;
+    const tId = typeof l.target==='object' ? l.target.id : l.target;
+    return (matching.has(sId) && matching.has(tId))
+      ? Math.min(0.15 + l.weight * 0.08, 0.55) : 0.02;
+  });
+}
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+function setView(view) {
+  currentView = view;
+  const isGraph = view === 'graph';
+
+  document.getElementById('graph-container').style.display = isGraph ? '' : 'none';
+  document.getElementById('timeline-view').style.display   = isGraph ? 'none' : '';
+  document.getElementById('weight-section').style.display  = isGraph ? '' : 'none';
+
+  document.getElementById('btn-graph').style.cssText    = isGraph
+    ? 'color:#bac3ff;background:#0f0f0f' : 'color:#454651;background:transparent';
+  document.getElementById('btn-timeline').style.cssText = !isGraph
+    ? 'color:#bac3ff;background:#0f0f0f' : 'color:#454651;background:transparent';
+
+  closeReader(); // close reader on view switch
+  if (!isGraph) renderTimeline();
+}
+
+// ── Timeline ──────────────────────────────────────────────────────────────────
+function renderTimeline() {
+  const filterQ = searchQuery;
+  const filterType  = activeTagFilter;
+  const filterTypes = activeTypes;
+
+  // Filter nodes
+  const visible = gNodes.filter(n => {
+    if (!filterTypes.has(n.type)) return false;
+    if (filterType && !(n.tags||[]).includes(filterType)) return false;
+    if (filterQ && !n.title.toLowerCase().includes(filterQ) &&
+        !(n.tags||[]).some(t=>t.includes(filterQ)) &&
+        !(n.snippet||'').toLowerCase().includes(filterQ)) return false;
+    return true;
+  });
+
+  // Group by YYYY-MM
+  const groups = {};
+  const undated = [];
+  for (const n of visible) {
+    const d = n.date_created || '';
+    const ym = d.length >= 7 ? d.slice(0,7) : '';
+    if (ym) (groups[ym] = groups[ym]||[]).push(n);
+    else undated.push(n);
+  }
+
+  const months = Object.keys(groups).sort().reverse();
+  let html = '';
+
+  if (!months.length && !undated.length) {
+    html = `<div class="text-center text-[11px] text-outline mt-20 opacity-40">No notes match current filters</div>`;
+  }
+
+  for (const ym of months) {
+    const [yr, mo] = ym.split('-');
+    const label = `${MONTH[+mo]} ${yr}`;
+    const sorted = groups[ym].sort((a,b)=>(b.date_created||'').localeCompare(a.date_created||''));
+    html += `
+      <div class="mb-8">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="text-[9px] text-outline uppercase tracking-widest">${label}</div>
+          <div class="flex-1 h-px bg-outline-variant/40"></div>
+          <div class="text-[9px] text-outline">${sorted.length}</div>
+        </div>
+        <div class="space-y-2">${sorted.map(n => timelineCard(n)).join('')}</div>
+      </div>`;
+  }
+
+  if (undated.length) {
+    html += `
+      <div class="mb-8 opacity-50">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="text-[9px] text-outline uppercase tracking-widest">Undated</div>
+          <div class="flex-1 h-px bg-outline-variant/40"></div>
+          <div class="text-[9px] text-outline">${undated.length}</div>
+        </div>
+        <div class="space-y-2">${undated.map(n => timelineCard(n)).join('')}</div>
+      </div>`;
+  }
+
+  document.getElementById('timeline-content').innerHTML = html;
+
+  // Re-apply selection highlight
+  if (selectedNode) syncTimelineSelection(selectedNode.id);
+}
+
+function timelineCard(n) {
+  const color = C[n.type] || '#888';
+  const tagHtml = (n.tags||[]).slice(0,5).map(t =>
+    `<span style="color:${tagColor(t)};border-color:${tagColor(t)}33" class="tag-chip text-[8px]">${
+      t.includes('/') ? t.split('/').slice(1).join('/') : t
+    }</span>`
+  ).join('');
+  return `
+    <div class="tl-card flex items-start gap-3 p-3 cursor-pointer hover:bg-surface-container/60"
+         data-tl-id="${n.id}" style="border-color:${color}22"
+         onclick="selectFromTimeline('${n.id}')">
+      <div class="shrink-0 mt-0.5 w-4 text-center">
+        <span style="color:${color}">${ICON[n.type]}</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-[11px] font-bold text-on-surface leading-snug">${n.title}</div>
+        ${n.snippet ? `<div class="text-[9px] text-outline leading-relaxed mt-0.5 line-clamp-2 opacity-70">${n.snippet.slice(0,130)}</div>` : ''}
+        ${tagHtml ? `<div class="flex flex-wrap gap-1 mt-1.5">${tagHtml}</div>` : ''}
+      </div>
+      <div class="shrink-0 flex flex-col items-end gap-1">
+        ${n.date_created ? `<div class="text-[8px] text-outline font-mono whitespace-nowrap">${n.date_created}</div>` : ''}
+        ${(() => {
+          const t = gTrustScores[n.id];
+          if (!t) return '';
+          return `<div class="text-[8px] font-mono" style="color:${trustColor(t.composite)}">⬡ ${Math.round(t.composite*100)}</div>`;
+        })()}
+      </div>
+    </div>`;
+}
+
+function selectFromTimeline(id) {
+  const node = gNodes.find(n => n.id === id);
+  if (!node) return;
+  const liveLinks = [];
+  if (linkSel) linkSel.each(function(l) { liveLinks.push(l); });
+  selectNode(node, liveLinks, true);
+}
+
+function syncTimelineSelection(id) {
+  document.querySelectorAll('[data-tl-id]').forEach(el => {
+    const isSelected = el.dataset.tlId === id;
+    el.style.background = isSelected ? '#0d0e13' : '';
+    el.style.borderLeftWidth = isSelected ? '2px' : '';
+    el.style.borderLeftColor = isSelected ? (C[selectedNode?.type]||'#555') : (selectedNode ? '#111' : '');
+    el.style.opacity = (!id || isSelected) ? '1' : '0.4';
+  });
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+const tip = document.getElementById('tooltip');
+function onHover(e, d) {
+  const cnt = gLinks.filter(l=>
+    (l.source===d.id||l.target===d.id) && l.weight>=minWeight).length;
+  const trust = gTrustScores[d.id];
+  const contradictCnt = gContradictCountById[d.id] || 0;
+  tip.innerHTML = `
+    <div class="font-bold text-[12px] leading-tight" style="color:${C[d.type]}">${ICON[d.type]} ${d.title}</div>
+    <div class="text-[9px] text-outline uppercase mt-0.5">${LABEL[d.type]}</div>
+    ${d.date_created ? `<div class="text-[9px] text-outline mt-0.5 font-mono">${d.date_created}</div>` : ''}
+    <div class="text-[9px] text-outline mt-1">${cnt} connection${cnt!==1?'s':''}</div>
+    ${trust ? `<div class="text-[9px] mt-1 font-mono" style="color:${trustColor(trust.composite)}">⬡ trust ${Math.round(trust.composite*100)}/100 · ${trustLabel(trust.composite)}</div>` : ''}
+    ${contradictCnt ? `<div class="text-[9px] mt-1 font-mono" style="color:#f87171">⚡ ${contradictCnt} contradiction${contradictCnt!==1?'s':''}</div>` : ''}
+    ${d.tags?.length ? `<div class="text-[8px] text-outline mt-1 opacity-60">${d.tags.slice(0,5).join(' · ')}${d.tags.length>5?` +${d.tags.length-5}`:''}</div>` : ''}`;
+  tip.classList.remove('hidden');
+}
+function onLinkHover(e, l) {
+  const s = typeof l.source==='object'?l.source:gNodes.find(n=>n.id===l.source);
+  const t = typeof l.target==='object'?l.target:gNodes.find(n=>n.id===l.target);
+  tip.innerHTML = `
+    <div class="text-[9px] font-bold text-on-surface">${s?.title||l.source}</div>
+    <div class="text-[8px] text-outline my-0.5">⟷ ${l.weight} shared tag${l.weight!==1?'s':''}</div>
+    <div class="text-[9px] font-bold text-on-surface">${t?.title||l.target}</div>
+    <div class="flex flex-wrap gap-1 mt-1.5">
+      ${(l.shared_tags||[]).map(t=>`<span style="color:${tagColor(t)};border-color:${tagColor(t)}44" class="tag-chip">${t}</span>`).join('')}
+    </div>`;
+  tip.classList.remove('hidden');
+}
+function onMove(e) {
+  const b = container.getBoundingClientRect();
+  let x = e.clientX - b.left + 14, y = e.clientY - b.top - 10;
+  if (x + 250 > W) x -= 260;
+  Object.assign(tip.style, { left:x+'px', top:y+'px' });
+}
+function onOut() { tip.classList.add('hidden'); }
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function toggleType(type) {
+  if(activeTypes.has(type)) activeTypes.delete(type); else activeTypes.add(type);
+  document.getElementById(`f-${type}`).style.opacity = activeTypes.has(type) ? '1' : '0.25';
+  applyFilters();
+  if (currentView === 'timeline') renderTimeline();
+}
+
+function toggleTagFilter(tag) {
+  activeTagFilter = activeTagFilter === tag ? null : tag;
+  document.querySelectorAll('.tag-chip').forEach(el => {
+    const t = el.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+    if (t) el.classList.toggle('inactive', !!activeTagFilter && t !== activeTagFilter);
+  });
+  applyFilters();
+  if (currentView === 'timeline') renderTimeline();
+}
+
+function clearTagFilter() {
+  activeTagFilter = null;
+  document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
+  applyFilters();
+  if (currentView === 'timeline') renderTimeline();
+}
+
+function onWeightChange(val) {
+  minWeight = val;
+  document.getElementById('weight-val').textContent = val;
+  if (linkSel) linkSel.style('opacity', l =>
+    l.weight >= minWeight ? Math.min(0.15+l.weight*0.08,0.55) : 0);
+}
+
+function applyFilters() {
+  if (searchQuery) { applySearch(); return; }
+  if (!nodeSel || !linkSel) return;
+  const tagNodes = activeTagFilter ? new Set(gTagIndex[activeTagFilter]||[]) : null;
+  nodeSel.style('opacity', n => {
+    if (!activeTypes.has(n.type)) return 0.03;
+    if (tagNodes && !tagNodes.has(n.id)) return 0.06;
+    return 1;
+  });
+  linkSel.style('opacity', l => {
+    if (l.weight < minWeight) return 0;
+    const sId = typeof l.source==='object'?l.source.id:l.source;
+    const tId = typeof l.target==='object'?l.target.id:l.target;
+    const sN = gNodes.find(n=>n.id===sId), tN = gNodes.find(n=>n.id===tId);
+    if (!activeTypes.has(sN?.type)||!activeTypes.has(tN?.type)) return 0;
+    if (tagNodes && !tagNodes.has(sId) && !tagNodes.has(tId)) return 0;
+    return Math.min(0.15+l.weight*0.08,0.55);
+  });
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetView() {
+  searchQuery = ''; activeTagFilter = null;
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-count').textContent = '';
+  document.getElementById('search-clear').classList.add('hidden');
+  document.querySelectorAll('.tag-chip').forEach(el => el.classList.remove('inactive'));
+  if (currentView === 'graph') {
+    d3.select('#graph-svg').transition().duration(600)
+      .call(zoomBehavior.transform, d3.zoomIdentity);
+    if (nodeSel) nodeSel.style('opacity', 1);
+    if (linkSel) linkSel.style('opacity', l => Math.min(0.15+l.weight*0.08,0.55));
+  } else {
+    renderTimeline();
+  }
+}
+
+// ── Trust overlay toggle ──────────────────────────────────────────────────────
+function toggleTrustOverlay() {
+  showTrustOverlay = !showTrustOverlay;
+  const btn = document.getElementById('btn-trust');
+  btn.style.opacity = showTrustOverlay ? '1' : '0.3';
+  if (nodeSel) {
+    nodeSel.selectAll('.trust-ring')
+      .attr('stroke-opacity', d => {
+        if (!showTrustOverlay) return 0;
+        const t = gTrustScores[d.id];
+        return t ? 0.65 : 0;
+      });
+  }
+}
+
+// ── Contradiction layer toggle ────────────────────────────────────────────────
+function toggleContradictLayer() {
+  showContradictLayer = !showContradictLayer;
+  const btn = document.getElementById('btn-contradict');
+  btn.style.opacity = showContradictLayer ? '1' : '0.3';
+  if (contradictLinkSel) {
+    contradictLinkSel.attr('stroke-opacity', showContradictLayer ? 0.75 : 0);
+  }
+}
+
+const SEV_COLOR = { critical: '#f87171', moderate: '#fb923c', minor: '#f6bd58' };
+
+function onContradictLinkHover(e, edge) {
+  const nodeA = gNodes.find(n => n.id === edge.note_a);
+  const nodeB = gNodes.find(n => n.id === edge.note_b);
+  tip.innerHTML = `
+    <div class="text-[9px] font-bold" style="color:#f87171">⚡ Contradiction</div>
+    <div class="text-[9px] font-bold text-on-surface mt-1">${nodeA?.title || edge.note_a}</div>
+    <div class="text-[8px] text-outline my-0.5">⟷ ${edge.count} contradiction${edge.count!==1?'s':''}</div>
+    <div class="text-[9px] font-bold text-on-surface">${nodeB?.title || edge.note_b}</div>
+    <div class="text-[8px] mt-1" style="color:${SEV_COLOR[edge.severity]||'#f87171'}">${edge.severity}</div>`;
+  tip.classList.remove('hidden');
+}
+
+window.addEventListener('resize', () => {
+  W = container.clientWidth; H = container.clientHeight;
+  if (sim) sim.force('center', d3.forceCenter(W/2,H/2).strength(0.03)).alpha(0.1).restart();
+});
+
+// ── Full Note Reader ──────────────────────────────────────────────────────────
+marked.setOptions({ gfm:true, breaks:true });
+
+function preprocessObsidianMd(md) {
+  let fm = '';
+  const fmMatch = md.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (fmMatch) { fm = fmMatch[1]; md = md.slice(fmMatch[0].length); }
+  md = md.replace(/^> \[!([\w]+)\](.*?)$([\s\S]*?)(?=^[^>]|\n\n|$)/gm,
+    (_, type, title, body) => {
+      const clean = body.replace(/^> ?/gm,'').trim();
+      return `<div class="callout" data-type="${type}"><strong>[${type.toUpperCase()}]${title}</strong><br>${clean}</div>`;
+    });
+  md = md.replace(/\[\[([^\]]+)\]\]/g, `<span style="color:#bac3ff;border-bottom:1px dashed #454651">$1</span>`);
+  return { fm, md };
+}
+
+function renderFrontmatter(fm) {
+  if (!fm) return '';
+  const lines = fm.split('\n').map(line => {
+    const m = line.match(/^(\s*-?\s*)([\w_-]+):\s*(.*)$/);
+    if (m) return `<span class="fm-tag">${m[1]}${m[2]}:</span> <span class="fm-val">${m[3]}</span>`;
+    return `<span style="color:#555">${line}</span>`;
+  });
+  return `<div class="fm-block">${lines.join('<br>')}</div>`;
+}
+
+async function openReader(file, title, color) {
+  const reader  = document.getElementById('note-reader');
+  const body    = document.getElementById('reader-body');
+  const titleEl = document.getElementById('reader-title');
+  const obsLink = document.getElementById('obsidian-link');
+
+  titleEl.textContent = title;
+  titleEl.style.color = color;
+  body.innerHTML = `<div class="text-[10px] text-outline text-center mt-10 animate-pulse">Loading…</div>`;
+  reader.style.width   = '520px';
+  reader.style.overflow = 'visible';
+  readerOpen = true;
+
+  // Shrink canvas
+  document.getElementById('graph-container').style.right  = '520px';
+  document.getElementById('timeline-view').style.right    = '520px';
+
+  try {
+    const resp = await fetch(API_BASE + `/api/vault/note?note_file=${encodeURIComponent(file)}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    obsLink.href = data.obsidian_url;
+    const { fm, md } = preprocessObsidianMd(data.content);
+    body.innerHTML = renderFrontmatter(fm) + marked.parse(md);
+  } catch(err) {
+    body.innerHTML = `<div class="text-error text-[11px] mt-4">Failed: ${err.message}</div>`;
+  }
+}
+
+function closeReader() {
+  document.getElementById('note-reader').style.width    = '0';
+  document.getElementById('note-reader').style.overflow = 'hidden';
+  document.getElementById('graph-container').style.right = '264px';
+  document.getElementById('timeline-view').style.right   = '264px';
+  readerOpen = false;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadGraph();
+</script>
+</body>
+</html>

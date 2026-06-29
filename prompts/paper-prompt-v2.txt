@@ -84,8 +84,11 @@ year: <YYYY>
 arxiv_id: <id ถ้ามี ไม่งั้นเว้น>
 tags:
   - paper
-  - domain/<หลัก เช่น nlp, cv, rl, systems>
-  - method/<หลัก เช่น optimization, prompting, finetuning, evaluation>
+  - domain/<primary field: nlp, cv, rl, systems, robotics, security, multimodal>
+  - method/<core technique: optimization, prompting, finetuning, rlhf, quantization, retrieval, evaluation>
+  - topic/<specific subject e.g.: transformer, attention-mechanism, chain-of-thought, rag, agents, moe, kv-cache>
+  - topic/<second topic if applicable — omit if redundant>
+  - concept/<key reusable concept e.g.: test-time-compute, tool-use, speculative-decoding, self-improvement>
   - paper-type/<empirical | theoretical | survey | benchmark>
 source_url: <url>
 date_summarized: <YYYY-MM-DD>
