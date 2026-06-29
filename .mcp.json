@@ -2,8 +2,7 @@
   "mcpServers": {
     "summarize-agent": {
       "command": "C:\\Users\\ryu25\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
-      "args": ["-m", "backend.mcp_server"],
-      "cwd": "D:\\VS_CODE_PROJECT\\SP_Summarize_Project"
+      "args": ["run_mcp_server.py"]
     }
   }
 }

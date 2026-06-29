@@ -1,14 +1,14 @@
 {
   "_comment": "Merge the mcpServers block below into your real Claude Desktop config.",
   "_location_windows": "%APPDATA%\\Claude\\claude_desktop_config.json",
-  "_location_path_expanded": "C:\\Users\\ryu25\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
-  "_note": "If the file already has other servers, add 'summarize-agent' inside the existing mcpServers object — do not overwrite the whole file. Restart Claude Desktop after editing.",
+  "_location_store_app": "If Claude Desktop is the Microsoft Store build, the REAL file Python sees is C:\\Users\\<you>\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude_desktop_config.json (the %APPDATA% path is a redirect).",
+  "_note": "Add 'summarize-agent' inside the existing mcpServers object — do not overwrite other keys. Restart Claude Desktop after editing.",
+  "_why_wrapper": "Use run_mcp_server.py (NOT '-m backend.mcp_server'). Claude Desktop does not reliably set the working directory, so '-m backend.mcp_server' fails with 'No module named backend'. The wrapper puts the project root on sys.path itself, so it works from any cwd.",
 
   "mcpServers": {
     "summarize-agent": {
       "command": "C:\\Users\\ryu25\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
-      "args": ["-m", "backend.mcp_server"],
-      "cwd": "D:\\VS_CODE_PROJECT\\SP_Summarize_Project"
+      "args": ["D:\\VS_CODE_PROJECT\\SP_Summarize_Project\\run_mcp_server.py"]
     }
   }
 }

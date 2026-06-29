@@ -22,11 +22,16 @@ Three tools + one slash command:
 py -3 -m pip install -r requirements.txt   # includes mcp>=1.28
 ```
 
-Quick sanity check the server boots over stdio:
+Quick sanity check the server boots over stdio (works from ANY directory thanks to the wrapper):
 
 ```bash
-py -3 -m backend.mcp_server   # should sit waiting for JSON-RPC on stdin; Ctrl+C to exit
+py -3 D:\VS_CODE_PROJECT\SP_Summarize_Project\run_mcp_server.py   # waits for JSON-RPC on stdin; Ctrl+C to exit
 ```
+
+> **Why `run_mcp_server.py` and not `-m backend.mcp_server`?**
+> Claude Desktop does not reliably set the working directory when it spawns the server, so
+> `-m backend.mcp_server` fails with `ModuleNotFoundError: No module named 'backend'`.
+> `run_mcp_server.py` puts the project root on `sys.path` itself, so it works from any cwd.
 
 ---
 
@@ -37,6 +42,9 @@ py -3 -m backend.mcp_server   # should sit waiting for JSON-RPC on stdin; Ctrl+C
    %APPDATA%\Claude\claude_desktop_config.json
    = C:\Users\ryu25\AppData\Roaming\Claude\claude_desktop_config.json
    ```
+   > **Microsoft Store build?** The real file Python/scripts see is the virtualized path:
+   > `C:\Users\<you>\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`
+   > (the `%APPDATA%` path is a redirect — Notepad/Explorer follow it, native Python does not).
 2. Merge the `mcpServers` block from [`claude_desktop_config.example.json`](claude_desktop_config.example.json)
    into it (keep any servers you already have):
    ```json
@@ -44,13 +52,12 @@ py -3 -m backend.mcp_server   # should sit waiting for JSON-RPC on stdin; Ctrl+C
      "mcpServers": {
        "summarize-agent": {
          "command": "C:\\Users\\ryu25\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
-         "args": ["-m", "backend.mcp_server"],
-         "cwd": "D:\\VS_CODE_PROJECT\\SP_Summarize_Project"
+         "args": ["D:\\VS_CODE_PROJECT\\SP_Summarize_Project\\run_mcp_server.py"]
        }
      }
    }
    ```
-3. **Restart Claude Desktop.**
+3. **Restart Claude Desktop** (fully Quit from the tray — closing the window isn't enough).
 4. You should see `summarize-agent` under the tools (🔌) menu, and `/summarize` in the slash-command list.
 
 Use it:
@@ -75,7 +82,8 @@ The `/summarize` skill lives at `.claude/skills/summarize/SKILL.md`.
 To make it available **outside** this project too, register the server at user scope:
 ```bash
 claude mcp add summarize-agent -s user -- \
-  C:\Users\ryu25\AppData\Local\Python\pythoncore-3.14-64\python.exe -m backend.mcp_server
+  C:\Users\ryu25\AppData\Local\Python\pythoncore-3.14-64\python.exe \
+  D:\VS_CODE_PROJECT\SP_Summarize_Project\run_mcp_server.py
 ```
 (then move the skill to `~/.claude/skills/` if you want `/summarize` everywhere).
 
@@ -101,7 +109,8 @@ knowledge graph (`/graph.html`) and the M6 trust-score / audit pipeline.
 | Symptom | Fix |
 |---|---|
 | Server not listed in Desktop | Check the JSON is valid (no trailing comma), restart Desktop, confirm the `cwd` path exists |
-| `ModuleNotFoundError: backend` | `cwd` must be the project root; the example config sets it |
+| `ModuleNotFoundError: No module named 'backend'` | You're using `-m backend.mcp_server` — switch to `run_mcp_server.py` (Desktop ignores `cwd`) |
+| `_distutils_hack` warning in logs | Harmless py3.14 noise on stderr — not an error, server still starts |
 | `python` opens Microsoft Store | use the full `python.exe` path (as in the example), not bare `python` |
 | FastAPI app broke after install | needs `fastapi>=0.118` on Python 3.14 — already pinned in `requirements.txt` |
 | Notes overwrite each other | pass `on_conflict="skip"` or `"rename"`, or say "don't overwrite existing notes" |
